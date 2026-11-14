@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/dm-sans@5.2.6/400.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/dm-sans@5.2.6/500.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/dm-sans@5.2.6/600.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/caveat@5.2.6/500.css">
 <script src="https://cdn.tailwindcss.com"></script>
 <script type="importmap">
 {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}
@@ -39,7 +40,7 @@
 <div class="vignette"></div><div class="grain"></div>
 <header class="app-header">
  <div class="brand"><div class="brand-mark" data-icon="school"></div><div><div class="brand-name">CLASS 9A</div><div class="brand-sub">SCHOOL MYSTERY</div></div></div>
- <div class="header-actions"><span class="chip"><i class="live-dot"></i> ENVIRONMENT · PHASE 02</span><button class="quiet-btn" id="soundButton" aria-label="Mute all sound"><span data-icon="volume"></span><span class="sound-label" id="soundLabel">SOUND ON</span></button><button class="quiet-btn" id="headerSettings" aria-label="Open settings"><span data-icon="settings"></span></button></div>
+ <div class="header-actions"><span class="chip"><i class="live-dot"></i> GAMEPLAY SYSTEMS · PHASE 03</span><button class="quiet-btn" id="soundButton" aria-label="Mute all sound"><span data-icon="volume"></span><span class="sound-label" id="soundLabel">SOUND ON</span></button><button class="quiet-btn" id="headerSettings" aria-label="Open settings"><span data-icon="settings"></span></button></div>
 </header>
 <main>
  <section class="screen" id="menuScreen">
@@ -111,15 +112,18 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 const CONFIG = Object.freeze({
  title:'CLASS 9A — SCHOOL MYSTERY',
- version:'0.2.0 · Phase 2',
+ version:'0.3.0 · Phase 3',
  maxFriends:5,
  cabinetTarget:7,
  cabinetPassword:'110',
  staffDestination:'staff-room-1',
  saveKey:'class9a.school-mystery.v1',
  settingsKey:'class9a.settings.v1',
+ tutorialKey:'class9a.tutorial.v1',
  eyeHeight:1.62,
- walkSpeed:3.1,
+ walkSpeed:3.05,
+ sprintSpeed:4.55,
+ interactionRange:2.4,
  mapBounds:{west:-24,east:27,north:-23,south:22},
  spawn:{x:10.85,z:7.3,yaw:Math.PI},
  storyStates:['MENU','CHARACTER_SELECTION','FRIEND_SELECTION','ENVIRONMENT_PREVIEW','BUS_SCENE','SCHOOL_ARRIVAL','CLASSROOM_INTRO','CLASSROOM_ARRIVALS','WASHROOM_SEQUENCE','SOCIAL_STUDIES','SHORT_BREAK','TEACHER_ANNOUNCEMENT','TASK_001','BOOK_MINIGAME','FOOD_REWARD','STAFF_ROOM','SECRET_NOTES','KABI_MISSION','DEVICE_DISCOVERED']
@@ -739,7 +743,7 @@ class DoorSystem{
   this.doors.push(door);
   return door;
  }
- static toggle(door){door.target=door.target===0?-1.9:0;audio.play('select')}
+ static toggle(door){door.target=door.target===0?-1.9:0;audio.play('door')}
  static update(dt){
   for(const d of this.doors){
    d.angle=THREE.MathUtils.damp(d.angle,d.target,6,dt);
@@ -1224,7 +1228,7 @@ const HUD={
   this.root=document.createElement('div');this.root.id='hud';
   this.root.style.cssText='position:fixed;inset:0;z-index:28;pointer-events:none';
   this.root.innerHTML=`
-   <div style="position:absolute;left:50%;top:50%;width:5px;height:5px;margin:-2px;border-radius:50%;background:#ffcd70;box-shadow:0 0 6px #0009"></div>
+   <div id="hudCrosshair" style="position:absolute;left:50%;top:50%;width:5px;height:5px;margin:-2px;border-radius:50%;background:#ffcd70;box-shadow:0 0 6px #0009;transition:all .15s"></div>
    <div style="position:absolute;left:18px;top:86px;max-width:270px;background:#102334d9;border:1px solid #79cbed35;border-left:3px solid #ffcd70;border-radius:6px;padding:12px 14px">
     <div style="font-size:9px;letter-spacing:2px;color:#79cbed;margin-bottom:5px">CURRENT OBJECTIVE</div>
     <div id="hudObjective" style="font-family:var(--display);font-size:21px;line-height:1.05">EXPLORE THE SECOND FLOOR</div>
@@ -1238,6 +1242,14 @@ const HUD={
    <button id="hudPause" aria-label="Pause" style="position:absolute;right:18px;top:86px;pointer-events:auto;width:44px;height:44px;border-radius:8px;background:#102334d9;border:1px solid #ffffff30;color:#f0f3ed;display:grid;place-items:center">${icon('pause')}</button>`;
   document.body.appendChild(this.root);this.root.hidden=true;
   $('hudPause').onclick=()=>GameEngine.pause();
+  // Keyboard hints only help where there is a keyboard; on touch the joystick,
+  // knob and INTERACT button already label themselves and occupy that corner.
+  if(!matchMedia('(pointer:coarse)').matches){
+   const hints=document.createElement('div');
+   hints.style.cssText='position:absolute;left:18px;bottom:calc(56px + env(safe-area-inset-bottom));font-size:10px;color:#abc0ce;display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;background:#10233499;padding:8px 12px;border-radius:5px;border:1px solid #ffffff15;max-width:max-content';
+   hints.innerHTML='<span class="key">W A S D</span><span>MOVE</span><span class="key">SHIFT</span><span>SPRINT</span><span class="key">E</span><span>INTERACT</span><span class="key">H</span><span>HELP</span>';
+   this.root.appendChild(hints);
+  }
   MobileControls.build();
  },
  show(){if(this.root)this.root.hidden=false;MobileControls.setVisible(true)},
@@ -1247,6 +1259,13 @@ const HUD={
  updatePrompt(){
   const n=InteractionSystem.nearest,p=$('interactionPrompt');if(!p)return;
   p.hidden=!n;
+  const cross=$('hudCrosshair');
+  if(cross){
+   cross.style.width=n?'14px':'5px';cross.style.height=n?'14px':'5px';
+   cross.style.margin=n?'-7px':'-2px';cross.style.background=n?'#9bd8b4':'#ffcd70';
+   cross.style.border=n?'2px solid #102334':'none';
+  }
+  if(MobileControls.btn)MobileControls.btn.style.opacity=n?'1':'.45';
   if(n){
    $('promptLabel').textContent=n.label||'Interact';
    $('promptKey').style.display=MobileControls.coarse?'none':'';
@@ -1382,58 +1401,116 @@ class SceneManager{
  }
 }
 
-/* 08 — ORIGINAL PROCEDURAL AUDIO */
+/* 08 — ORIGINAL PROCEDURAL AUDIO (ambience buses, footsteps, horror, UI) */
 class AudioManager{
- constructor(){this.ctx=null;this.master=null;this.music=null;this.sfx=null;this.nodes=[]}
+ constructor(){
+  this.ctx=null;this.master=null;this.music=null;this.sfx=null;this.filter=null;
+  this.nodes=[];this.ambience=null;this.mode='menu';this.muffleAmount=0;
+ }
  async start(){
   if(!this.ctx){
-   const AudioContextClass=window.AudioContext||window.webkitAudioContext;if(!AudioContextClass)return;
+   const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
    try{
-    this.ctx=new AudioContextClass();
-    this.master=this.ctx.createGain();this.music=this.ctx.createGain();this.sfx=this.ctx.createGain();
-    this.music.connect(this.master);this.sfx.connect(this.master);this.master.connect(this.ctx.destination);
-    const buffer=this.ctx.createBuffer(1,this.ctx.sampleRate*3,this.ctx.sampleRate),samples=buffer.getChannelData(0);
+    this.ctx=new AC();
+    this.master=this.ctx.createGain();
+    this.filter=this.ctx.createBiquadFilter();this.filter.type='lowpass';this.filter.frequency.value=18000;
+    this.music=this.ctx.createGain();this.sfx=this.ctx.createGain();
+    this.music.connect(this.filter);this.sfx.connect(this.filter);this.filter.connect(this.master);this.master.connect(this.ctx.destination);
+    const buffer=this.ctx.createBuffer(1,this.ctx.sampleRate*4,this.ctx.sampleRate),samples=buffer.getChannelData(0);
     let previous=0;
-    for(let index=0;index<samples.length;index++){previous=(previous+Math.random()*.04-.02)/1.015;samples[index]=previous}
-    const source=this.ctx.createBufferSource();source.buffer=buffer;source.loop=true;
-    const filter=this.ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=350;
-    const gain=this.ctx.createGain();gain.gain.value=.16;
-    source.connect(filter);filter.connect(gain);gain.connect(this.music);source.start();this.nodes.push(source,filter,gain);
-    for(const frequency of [110,164.81]){
-     const oscillator=this.ctx.createOscillator(),volume=this.ctx.createGain();
-     oscillator.type='sine';oscillator.frequency.value=frequency;volume.gain.value=.012;
-     oscillator.connect(volume);volume.connect(this.music);oscillator.start();this.nodes.push(oscillator,volume);
-    }
-    this.applySettings();
+    for(let i=0;i<samples.length;i++){previous=(previous+Math.random()*.05-.025)/1.02;samples[i]=previous}
+    const noise=this.ctx.createBufferSource();noise.buffer=buffer;noise.loop=true;
+    const noiseFilter=this.ctx.createBiquadFilter();noiseFilter.type='lowpass';noiseFilter.frequency.value=400;
+    const noiseGain=this.ctx.createGain();noiseGain.gain.value=.05;
+    noise.connect(noiseFilter);noiseFilter.connect(noiseGain);noiseGain.connect(this.music);noise.start();
+    const droneA=this.ctx.createOscillator(),droneB=this.ctx.createOscillator(),droneGain=this.ctx.createGain();
+    droneA.type='sine';droneB.type='triangle';droneA.frequency.value=82;droneB.frequency.value=123;droneGain.gain.value=.012;
+    droneA.connect(droneGain);droneB.connect(droneGain);droneGain.connect(this.music);droneA.start();droneB.start();
+    this.ambience={noise,noiseFilter,noiseGain,droneA,droneB,droneGain};
+    this.nodes.push(noise,noiseFilter,noiseGain,droneA,droneB,droneGain);
+    this.applySettings();this.setAmbience(this.mode);
    }catch(error){this.ctx=null;return}
   }
   try{await this.ctx.resume()}catch(error){}
  }
  applySettings(){
   if(!this.ctx)return;
-  const settings=save.settings,time=this.ctx.currentTime;
-  this.master.gain.setTargetAtTime(settings.muted?0:settings.masterVolume,time,.08);
-  this.music.gain.setTargetAtTime(settings.musicVolume,time,.08);
-  this.sfx.gain.setTargetAtTime(settings.sfxVolume,time,.08);
+  const s=save.settings,t=this.ctx.currentTime;
+  this.master.gain.setTargetAtTime(s.muted?0:s.masterVolume,t,.08);
+  this.music.gain.setTargetAtTime(s.musicVolume,t,.08);
+  this.sfx.gain.setTargetAtTime(s.sfxVolume,t,.08);
+ }
+ setAmbience(mode){
+  this.mode=mode;
+  if(!this.ctx||!this.ambience)return;
+  const t=this.ctx.currentTime,a=this.ambience;
+  const presets={
+   menu:{noise:.05,freq:420,drone:.012,a:82,b:123},
+   corridor:{noise:.04,freq:350,drone:.01,a:73,b:110},
+   classroom:{noise:.06,freq:620,drone:.008,a:98,b:147},
+   bus:{noise:.13,freq:230,drone:.03,a:55,b:82},
+   creepy:{noise:.03,freq:180,drone:.045,a:49,b:73},
+   silent:{noise:0,freq:100,drone:0,a:40,b:60}
+  };
+  const p=presets[mode]||presets.corridor;
+  a.noiseGain.gain.setTargetAtTime(p.noise,t,.4);
+  a.noiseFilter.frequency.setTargetAtTime(p.freq,t,.4);
+  a.droneGain.gain.setTargetAtTime(p.drone,t,.4);
+  a.droneA.frequency.setTargetAtTime(p.a,t,.4);
+  a.droneB.frequency.setTargetAtTime(p.b,t,.4);
+ }
+ setMuffled(amount){
+  this.muffleAmount=clamp(amount,0,1);
+  if(this.ctx&&this.filter)this.filter.frequency.setTargetAtTime(18000-this.muffleAmount*16500,this.ctx.currentTime,.15);
+ }
+ tone(freq,dur,type='sine',gain=.06,sweepTo=null){
+  if(!this.ctx||this.ctx.state!=='running'||save.settings.muted)return;
+  const t=this.ctx.currentTime,o=this.ctx.createOscillator(),g=this.ctx.createGain();
+  o.type=type;o.frequency.setValueAtTime(freq,t);
+  if(sweepTo)o.frequency.exponentialRampToValueAtTime(Math.max(20,sweepTo),t+dur);
+  g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(gain,t+.008);g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  o.connect(g);g.connect(this.sfx);o.start(t);o.stop(t+dur+.02);
+  o.onended=()=>{o.disconnect();g.disconnect()};
+ }
+ noiseBurst(dur,gain,freq){
+  if(!this.ctx||this.ctx.state!=='running'||save.settings.muted)return;
+  const t=this.ctx.currentTime,buffer=this.ctx.createBuffer(1,Math.max(1,Math.floor(this.ctx.sampleRate*dur)),this.ctx.sampleRate),data=buffer.getChannelData(0);
+  for(let i=0;i<data.length;i++)data[i]=(Math.random()*2-1)*(1-i/data.length);
+  const src=this.ctx.createBufferSource(),filter=this.ctx.createBiquadFilter(),g=this.ctx.createGain();
+  src.buffer=buffer;filter.type='bandpass';filter.frequency.value=freq;filter.Q.value=.7;
+  g.gain.setValueAtTime(gain,t);g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  src.connect(filter);filter.connect(g);g.connect(this.sfx);src.start(t);src.stop(t+dur+.02);
+  src.onended=()=>{src.disconnect();filter.disconnect();g.disconnect()};
  }
  play(type='confirm'){
   if(!this.ctx||this.ctx.state!=='running'||save.settings.muted)return;
-  const time=this.ctx.currentTime,oscillator=this.ctx.createOscillator(),gain=this.ctx.createGain();
-  oscillator.type=type==='error'?'triangle':'sine';
-  oscillator.frequency.setValueAtTime(type==='error'?145:type==='select'?520:390,time);
-  oscillator.frequency.exponentialRampToValueAtTime(type==='error'?90:type==='select'?780:580,time+.09);
-  gain.gain.setValueAtTime(.0001,time);gain.gain.exponentialRampToValueAtTime(.075,time+.008);gain.gain.exponentialRampToValueAtTime(.0001,time+.16);
-  oscillator.connect(gain);gain.connect(this.sfx);oscillator.start(time);oscillator.stop(time+.18);
-  oscillator.onended=()=>{oscillator.disconnect();gain.disconnect()};
+  switch(type){
+   case 'select':this.tone(520,.09,'sine',.05,780);break;
+   case 'error':this.tone(150,.16,'triangle',.07,90);break;
+   case 'footstep':this.noiseBurst(.07,.045,320);this.tone(92,.05,'sine',.028,60);break;
+   case 'runStep':this.noiseBurst(.06,.075,520);this.tone(112,.05,'sine',.045,72);break;
+   case 'door':this.tone(185,.28,'sawtooth',.035,92);this.noiseBurst(.12,.035,900);break;
+   case 'paper':this.noiseBurst(.18,.05,2600);break;
+   case 'notebook':this.tone(120,.08,'sine',.05,80);this.noiseBurst(.1,.04,1300);break;
+   case 'type':this.tone(1800,.02,'square',.012,1200);break;
+   case 'unlock':this.tone(900,.05,'square',.04,620);setTimeout(()=>this.tone(1240,.09,'sine',.05,1650),90);break;
+   case 'cabinetOpen':this.tone(145,.25,'sawtooth',.04,72);break;
+   case 'creepy':this.tone(66,.8,'sawtooth',.05,42);this.tone(97,.8,'sine',.04,61);break;
+   case 'cheer':this.noiseBurst(.4,.055,1500);this.tone(523,.3,'sine',.04,784);break;
+   case 'collect':this.tone(660,.1,'sine',.05,990);setTimeout(()=>this.tone(990,.14,'sine',.04,1320),70);break;
+   case 'whoosh':this.noiseBurst(.25,.05,650);break;
+   case 'heartbeat':this.tone(56,.12,'sine',.08,42);break;
+   case 'dialogueTick':this.tone(1400,.015,'square',.006,1000);break;
+   default:this.tone(390,.12,'sine',.05,580);
+  }
  }
  suspend(){if(this.ctx)this.ctx.suspend().catch(()=>{})}
  dispose(){
-  this.nodes.forEach(node=>{try{if(node.stop)node.stop();node.disconnect()}catch(error){}});
+  this.nodes.forEach(n=>{try{if(n.stop)n.stop();n.disconnect()}catch(error){}});
   if(this.ctx)this.ctx.close().catch(()=>{});
  }
 }
 const audio=new AudioManager();
-
 /* 09 — QUALITY MANAGER */
 class QualityManager{
  static samples=[];
@@ -1458,7 +1535,7 @@ class QualityManager{
  }
 }
 
-/* 10 — INPUT MANAGER */
+/* 10 — INPUT MANAGER (PC + Android, sprint, dialogue, help) */
 class InputManager{
  constructor(){
   this.keys=new Set();this.joystick=new THREE.Vector2();this.lookDelta=new THREE.Vector2();this.enabled=false;
@@ -1468,12 +1545,17 @@ class InputManager{
     if(event.code==='Escape'){event.preventDefault();UIManager.escapeModal()}
     return;
    }
-   if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))return;
+   const tag=document.activeElement?.tagName;
+   if(['INPUT','TEXTAREA','SELECT'].includes(tag)){
+    if(event.code==='Escape'){event.preventDefault();document.activeElement.blur();UIManager.escapeModal()}
+    return;
+   }
    if(event.code==='Escape'){event.preventDefault();GameEngine.pause();return}
    if((event.code==='Space'||event.code==='Enter')&&DialogueSystem.active){event.preventDefault();DialogueSystem.continue();return}
-   if(this.enabled&&['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(event.code))event.preventDefault();
+   if(this.enabled&&['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','ShiftLeft','ShiftRight'].includes(event.code))event.preventDefault();
    this.keys.add(event.code);
    if(this.enabled&&event.code==='KeyE'&&!event.repeat)InteractionSystem.interact();
+   if(this.enabled&&event.code==='KeyH'&&!event.repeat)TutorialUI.show();
   },options);
   window.addEventListener('keyup',event=>this.keys.delete(event.code),options);
   window.addEventListener('blur',()=>this.clear(),options);
@@ -1483,40 +1565,63 @@ class InputManager{
  }
  clear(){this.keys.clear();this.joystick.set(0,0);this.lookDelta.set(0,0)}
  axis(){
-  const horizontal=(this.keys.has('KeyD')||this.keys.has('ArrowRight')?1:0)-(this.keys.has('KeyA')||this.keys.has('ArrowLeft')?1:0)+this.joystick.x;
-  const vertical=(this.keys.has('KeyW')||this.keys.has('ArrowUp')?1:0)-(this.keys.has('KeyS')||this.keys.has('ArrowDown')?1:0)-this.joystick.y;
+  const dz=.12;
+  const jx=Math.abs(this.joystick.x)>dz?this.joystick.x:0;
+  const jy=Math.abs(this.joystick.y)>dz?this.joystick.y:0;
+  const horizontal=(this.keys.has('KeyD')||this.keys.has('ArrowRight')?1:0)-(this.keys.has('KeyA')||this.keys.has('ArrowLeft')?1:0)+jx;
+  const vertical=(this.keys.has('KeyW')||this.keys.has('ArrowUp')?1:0)-(this.keys.has('KeyS')||this.keys.has('ArrowDown')?1:0)+jy;
   return new THREE.Vector2(horizontal,vertical).clampLength(0,1);
  }
  dispose(){this.abort.abort();this.clear()}
 }
-
-/* 11 — COLLISION-AWARE PLAYER FOUNDATION */
+/* 11 — FIRST-PERSON PLAYER (acceleration, sprint, sliding collision, footsteps) */
 class PlayerController{
- constructor(){this.position=new THREE.Vector3(0,0,2);this.velocity=new THREE.Vector3();this.colliders=[];this.radius=.24;this.enabled=false}
+ constructor(){
+  this.position=new THREE.Vector3(0,0,2);this.velocity=new THREE.Vector3();
+  this.colliders=[];this.radius=.26;this.enabled=false;
+  this.stepDistance=0;this.moving=false;this.sprinting=false;this.speedRatio=0;
+ }
  setColliders(colliders){this.colliders=colliders}
  canOccupy(x,z){
-  const bounds=CONFIG.mapBounds,radius=this.radius;
-  if(x<bounds.west+radius||x>bounds.east-radius||z<bounds.north+radius||z>bounds.south-radius)return false;
-  return !this.colliders.some(collider=>x>collider.minX-radius&&x<collider.maxX+radius&&z>collider.minZ-radius&&z<collider.maxZ+radius);
+  const b=CONFIG.mapBounds,r=this.radius;
+  if(x<b.west+r||x>b.east-r||z<b.north+r||z>b.south-r)return false;
+  return !this.colliders.some(c=>x>c.minX-r&&x<c.maxX+r&&z>c.minZ-r&&z<c.maxZ+r);
  }
  update(delta,camera){
-  if(!this.enabled||GameEngine.paused)return;
-  const axis=GameEngine.input.axis(),forward=new THREE.Vector3();
-  camera.getWorldDirection(forward);forward.y=0;forward.normalize();
+  if(!this.enabled||GameEngine.paused||DialogueSystem.active||CutsceneManager.active){
+   this.velocity.multiplyScalar(Math.exp(-delta*10));this.moving=false;this.speedRatio=0;return;
+  }
+  const input=GameEngine.input,axis=input.axis();
+  this.sprinting=input.keys.has('ShiftLeft')||input.keys.has('ShiftRight');
+  const speed=this.sprinting?CONFIG.sprintSpeed:CONFIG.walkSpeed;
+  const forward=new THREE.Vector3();camera.getWorldDirection(forward);forward.y=0;forward.normalize();
   const right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0));
-  const desired=forward.multiplyScalar(axis.y).add(right.multiplyScalar(axis.x)).multiplyScalar(CONFIG.walkSpeed);
-  this.velocity.lerp(desired,1-Math.exp(-delta*12));
-  const nextX=this.position.x+this.velocity.x*delta,nextZ=this.position.z+this.velocity.z*delta;
-  if(this.canOccupy(nextX,this.position.z))this.position.x=nextX;
-  if(this.canOccupy(this.position.x,nextZ))this.position.z=nextZ;
+  const desired=forward.multiplyScalar(axis.y).add(right.multiplyScalar(axis.x)).multiplyScalar(speed);
+  this.velocity.lerp(desired,1-Math.exp(-delta*14));
+  const move=this.velocity.clone().multiplyScalar(delta),steps=Math.max(1,Math.ceil(move.length()/.12));
+  for(let i=0;i<steps;i++){
+   const sx=move.x/steps,sz=move.z/steps,px=this.position.x,pz=this.position.z;
+   if(this.canOccupy(px+sx,pz))this.position.x+=sx;else this.velocity.x=0;
+   if(this.canOccupy(this.position.x,pz+sz))this.position.z+=sz;else this.velocity.z=0;
+  }
+  const actual=Math.hypot(this.velocity.x,this.velocity.z);
+  this.moving=actual>.25;this.speedRatio=clamp(actual/CONFIG.sprintSpeed,0,1);
+  if(this.moving){
+   this.stepDistance+=actual*delta;
+   const interval=this.sprinting?.46:.62;
+   if(this.stepDistance>=interval){this.stepDistance=0;audio.play(this.sprinting?'runStep':'footstep')}
+  }else this.stepDistance=0;
  }
- dispose(){this.colliders=[];this.velocity.set(0,0,0)}
+ dispose(){this.colliders=[];this.velocity.set(0,0,0);this.moving=false}
 }
-
-/* 12 — FIRST-PERSON CAMERA + POINTER LOCK + DRAG FALLBACK */
+/* 12 — FIRST-PERSON CAMERA + POINTER LOCK + SCRIPTED CUTSCENES */
 class CameraManager{
  constructor(camera,canvas){
-  this.camera=camera;this.canvas=canvas;this.mode='menu';this.yaw=0;this.pitch=0;this.targetYaw=0;this.targetPitch=0;this.bob=0;this.dragging=false;this.last={x:0,y:0};
+  this.camera=camera;this.canvas=canvas;this.mode='menu';
+  this.yaw=0;this.pitch=0;this.targetYaw=0;this.targetPitch=0;this.bob=0;
+  this.dragging=false;this.last={x:0,y:0};
+  this.cutscenePos=new THREE.Vector3();this.cutsceneLook=new THREE.Vector3();this.cutsceneFov=57;
+  this.shakeAmount=0;this.shakeTime=0;
   this.controls=new PointerLockControls(camera,canvas);this.controls.pointerSpeed=save.settings.mouseSensitivity;
   this.onUnlock=()=>{if(GameEngine.input&&GameEngine.input.enabled&&!GameEngine.paused&&!UIManager.modalOpen)GameEngine.pause()};
   this.controls.addEventListener('unlock',this.onUnlock);
@@ -1544,31 +1649,53 @@ class CameraManager{
  setFirstPerson(position){
   this.mode='firstPerson';this.camera.position.copy(position).add(new THREE.Vector3(0,CONFIG.eyeHeight,0));
   this.yaw=this.targetYaw=0;this.pitch=this.targetPitch=0;this.camera.rotation.set(0,0,0,'YXZ');
+  this.camera.fov=57;this.camera.updateProjectionMatrix();
+ }
+ setCutscene(pos,lookAt,fov=57){
+  this.mode='cutscene';this.cutscenePos.copy(pos);this.cutsceneLook.copy(lookAt);this.cutsceneFov=fov;
+ }
+ shake(amount=.05,duration=.35){this.shakeAmount=Math.max(this.shakeAmount,amount);this.shakeTime=Math.max(this.shakeTime,duration)}
+ applyShake(delta){
+  if(this.shakeTime<=0)return;
+  this.shakeTime-=delta;
+  const a=this.shakeAmount*Math.max(0,this.shakeTime);
+  this.camera.position.x+=(Math.random()-.5)*a;
+  this.camera.position.y+=(Math.random()-.5)*a;
+  if(this.shakeTime<=0)this.shakeAmount=0;
  }
  update(delta,time){
   if(this.mode==='menu'){
    const reduced=matchMedia('(prefers-reduced-motion:reduce)').matches;
    this.camera.position.set(8.6+(reduced?0:Math.sin(time*.12)*.18),1.9,7.1);
    this.camera.lookAt(10.7,1.55,10.6);
+  }else if(this.mode==='cutscene'){
+   this.camera.position.lerp(this.cutscenePos,1-Math.exp(-delta*4));
+   const m=new THREE.Matrix4().lookAt(this.camera.position,this.cutsceneLook,new THREE.Vector3(0,1,0));
+   const q=new THREE.Quaternion().setFromRotationMatrix(m);
+   this.camera.quaternion.slerp(q,1-Math.exp(-delta*5));
+   this.camera.fov=THREE.MathUtils.damp(this.camera.fov,this.cutsceneFov,4,delta);this.camera.updateProjectionMatrix();
+   this.applyShake(delta);
   }else if(this.mode==='firstPerson'&&GameEngine.player.enabled&&!GameEngine.paused){
-   const input=GameEngine.input,settings=save.settings;
-   this.targetYaw-=input.lookDelta.x*.002*settings.cameraSensitivity*settings.touchSensitivity;
-   this.targetPitch=clamp(this.targetPitch-input.lookDelta.y*.002*settings.cameraSensitivity*settings.touchSensitivity,-1.15,1.15);
+   const input=GameEngine.input,s=save.settings;
+   this.targetYaw-=input.lookDelta.x*.002*s.cameraSensitivity*s.touchSensitivity;
+   this.targetPitch=clamp(this.targetPitch-input.lookDelta.y*.002*s.cameraSensitivity*s.touchSensitivity,-1.15,1.15);
    input.lookDelta.set(0,0);
    this.yaw=THREE.MathUtils.damp(this.yaw,this.targetYaw,22,delta);
    this.pitch=THREE.MathUtils.damp(this.pitch,this.targetPitch,22,delta);
-   const moving=GameEngine.player.velocity.length()>.2;this.bob+=delta*(moving?8:1.5);
-   this.camera.position.copy(GameEngine.player.position);
-   this.camera.position.y+=CONFIG.eyeHeight+(moving?Math.sin(this.bob)*.022:0);
+   const p=GameEngine.player,moving=p.moving;
+   this.bob+=delta*(moving?(p.sprinting?11:8):1.5);
+   this.camera.position.copy(p.position);
+   this.camera.position.y+=CONFIG.eyeHeight+(moving?Math.sin(this.bob)*.024:0);
    if(this.controls.isLocked){
     this.camera.rotation.x=clamp(this.camera.rotation.x,-1.15,1.15);
     this.yaw=this.targetYaw=this.camera.rotation.y;this.pitch=this.targetPitch=this.camera.rotation.x;
    }else this.camera.rotation.set(this.pitch,this.yaw,0,'YXZ');
+   this.camera.fov=THREE.MathUtils.damp(this.camera.fov,57,5,delta);this.camera.updateProjectionMatrix();
+   this.applyShake(delta);
   }
  }
  dispose(){this.controls.removeEventListener('unlock',this.onUnlock);this.controls.dispose();document.removeEventListener('pointerlockerror',this.lockError)}
 }
-
 /* 13 — UI MANAGER */
 class UIManager{
  static modalOpen=false;
@@ -1618,6 +1745,7 @@ class UIManager{
  static closeModal(restore=true){
   if(this.modalAbort)this.modalAbort.abort();
   $('modalRoot').innerHTML='';this.modalOpen=false;this.modalType='';
+  document.dispatchEvent(new CustomEvent('c9a:modalclosed'));
   if(restore&&this.previousFocus&&this.previousFocus.isConnected)this.previousFocus.focus({preventScroll:true});
  }
  static escapeModal(){
@@ -1674,11 +1802,11 @@ class UIManager{
   };
  }
  static credits(){
-  this.openModal('THE PEOPLE & THE PIXELS.',`<div class="eyebrow mb-4">An original school mystery</div><p class="credits-copy"><strong class="text-white">${esc(CONFIG.title)}</strong><br>A blocky world, familiar faces, and a day that doesn't quite add up.</p><div class="credit-rule"></div><h3>BUILT FROM SCRATCH.</h3><p class="credits-copy">Original procedural characters, architecture, materials and synthesized audio. Powered by Three.js r170. Barlow Condensed and DM Sans are open-source fonts. Interface icons use Lucide-style SVG paths.</p><h3>CLASS 9A.</h3><p class="credits-copy">23 boys. 11 girls. 34 individual characters.<br>All visual designs are fictional and respectful.</p><div class="notice">Phase 2 includes the full second-floor map, the detailed Class 9A classroom, collisions, lighting, NPC classmates and a walkable environment preview. The supplied boy storyline arrives in Phase 4.</div>`,`<p>${esc(CONFIG.version)}</p><button class="secondary" id="creditsDone">Back to the corridor</button>`,'credits');
+  this.openModal('THE PEOPLE & THE PIXELS.',`<div class="eyebrow mb-4">An original school mystery</div><p class="credits-copy"><strong class="text-white">${esc(CONFIG.title)}</strong><br>A blocky world, familiar faces, and a day that doesn't quite add up.</p><div class="credit-rule"></div><h3>BUILT FROM SCRATCH.</h3><p class="credits-copy">Original procedural characters, architecture, materials and synthesized audio. Powered by Three.js r170. Barlow Condensed and DM Sans are open-source fonts. Interface icons use Lucide-style SVG paths.</p><h3>CLASS 9A.</h3><p class="credits-copy">23 boys. 11 girls. 34 individual characters.<br>All visual designs are fictional and respectful.</p><div class="notice">Phase 3 adds the gameplay layer: smoother first-person movement, sprint, PC + Android controls, line-of-sight interactions, the dialogue engine, cutscene cameras, procedural audio, and the paper / notebook / keypad interfaces. The supplied boy storyline arrives in Phase 4.</div>`,`<p>${esc(CONFIG.version)}</p><button class="secondary" id="creditsDone">Back to the corridor</button>`,'credits');
   $('creditsDone').onclick=()=>this.closeModal();
  }
  static controls(){
-  this.openModal('KNOW YOUR WAY AROUND.',`<div class="eyebrow mb-4">PC + Android</div><div class="credits-copy"><h3 class="!mt-0">DESKTOP</h3><p><span class="key">W A S D</span> Move · Mouse to look<br><span class="key">E</span> Interact · <span class="key">ESC</span> Pause<br><span class="key">SPACE / ENTER</span> Continue dialogue<br>Click the world to capture your mouse.</p><h3>MOBILE</h3><p>Left joystick to move. Drag the right side to look. Tap the interaction button when a prompt appears. Landscape gives you more room.</p><h3>RIGHT NOW</h3><p>Choose a character and up to five friends, then walk the second floor. Visit Class 9A, the courtyard, the west wing and the east room. The supplied story begins in Phase 4.</p></div>`,`<p>First-person exploration. Cinematic story moments.</p><button class="secondary" id="controlsDone">Got it ${icon('check')}</button>`,'controls');
+  this.openModal('KNOW YOUR WAY AROUND.',`<div class="eyebrow mb-4">PC + Android</div><div class="credits-copy"><h3 class="!mt-0">DESKTOP</h3><p><span class="key">W A S D</span> Move · Mouse to look<br><span class="key">E</span> Interact · <span class="key">ESC</span> Pause<br><span class="key">SPACE / ENTER</span> Continue dialogue<br>Click the world to capture your mouse.</p><h3>MOBILE</h3><p>Left joystick to move. Drag the right side to look. Tap the interaction button when a prompt appears. Landscape gives you more room.</p><h3>RIGHT NOW</h3><p>Choose a character and up to five friends, then walk the second floor. Sprint with Shift, interact with E, press H for help. On mobile use the left joystick and right-side drag. The supplied story begins in Phase 4.</p></div>`,`<p>First-person exploration. Cinematic story moments.</p><button class="secondary" id="controlsDone">Got it ${icon('check')}</button>`,'controls');
   $('controlsDone').onclick=()=>this.closeModal();
  }
  static compatibility(title,message){
@@ -1690,6 +1818,109 @@ class UIManager{
   this.openModal('HER STORY IS STILL UNWRITTEN.',`<div class="placeholder-art"><img src="${portraits.get('girl-0')}" alt="Blocky girl character">${icon('book')}</div><div class="eyebrow mb-4">Girl storyline · In development</div><p class="credits-copy">The girl storyline is being developed. It hasn't been supplied yet, so there is no invented adventure here.</p><div class="notice">You can still meet all 11 girls, choose a protagonist and save a friend group. Only the boy storyline will have story content.</div>`,`<button class="secondary" id="girlBack">Back</button><button class="primary !text-xs !py-3 !min-h-0" id="girlMeet">Meet the characters ${icon('arrow-right')}</button>`,'girl');
   $('girlBack').onclick=()=>this.closeModal();
   $('girlMeet').onclick=()=>{this.closeModal();CharacterSelection.chooseGender('girl',true)};
+ }
+}
+
+/* 13.5 — PHASE 3 UI SYSTEMS: paper, notebook, keypad, tutorial */
+class PaperUI{
+ static show({title='A FOLDED NOTE',lines=[],onClose=()=>{}}={}){
+  audio.play('paper');
+  const body=`<div style="background:#f3ecd8;color:#2b2418;padding:30px 26px 34px;border-radius:3px;box-shadow:inset 0 0 40px #0001,0 10px 30px #0004;transform:rotate(-.6deg);font-family:'Caveat',cursive;font-size:27px;line-height:1.5;position:relative">
+   <div style="position:absolute;top:10px;right:14px;font-size:12px;color:#8a7a5a;font-family:var(--body);letter-spacing:1px">${esc(title)}</div>
+   ${lines.map((line,i)=>`<div style="transform:rotate(${i%2?.4:-.4}deg);margin-left:${(i%3)*4}px">${esc(line)}</div>`).join('')}
+   <div style="position:absolute;bottom:8px;left:14px;font-size:11px;color:#8a7a5a;font-family:var(--body)">folded twice · handle carefully</div>
+  </div>`;
+  UIManager.openModal(title,body,`<button class="primary !text-xs !py-3 !min-h-0" id="paperClose">Fold it away ${icon('check')}</button>`,'paper');
+  $('paperClose').onclick=()=>{audio.play('paper');UIManager.closeModal();onClose()};
+ }
+}
+class NotebookUI{
+ static open({required=100,onComplete=()=>{}}={}){
+  audio.play('notebook');
+  const body=`<div style="background:#f4f0e4;color:#25303a;border-radius:5px;padding:22px;box-shadow:inset 0 0 30px #0001">
+   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <div style="font-family:var(--display);font-size:28px">WRITE THE LINE</div>
+    <div id="notebookCount" style="font-size:12px;font-weight:600;color:#52636f">0 / ${required} CHARACTERS</div>
+   </div>
+   <div style="height:7px;background:#d8d2c2;border-radius:4px;overflow:hidden;margin:14px 0"><div id="notebookBar" style="height:100%;width:0;background:#27ae60;transition:width .15s"></div></div>
+   <textarea id="notebookInput" maxlength="${required}" placeholder="Type here…" style="width:100%;min-height:150px;resize:vertical;background:repeating-linear-gradient(#f8f5ea,#f8f5ea 29px,#c9d8e4 30px);border:1px solid #b9b2a0;border-radius:4px;padding:10px 12px;font-family:'Caveat',cursive;font-size:25px;line-height:30px;color:#25303a;outline:none"></textarea>
+   <div id="notebookDone" hidden style="margin-top:12px;color:#27ae60;font-weight:600;font-size:13px">CLASSWORK COMPLETE</div>
+  </div>`;
+  UIManager.openModal('CLASSWORK',body,`<button class="secondary" id="notebookCancel">Not yet</button><button class="primary !text-xs !py-3 !min-h-0" id="notebookSubmit" disabled>Submit classwork ${icon('check')}</button>`,'notebook');
+  const input=$('notebookInput'),count=$('notebookCount'),bar=$('notebookBar'),submit=$('notebookSubmit');
+  input.addEventListener('input',()=>{
+   if(input.value.length>required)input.value=input.value.slice(0,required);
+   const n=input.value.length;
+   count.textContent=`${n} / ${required} CHARACTERS`;
+   bar.style.width=(n/required*100)+'%';
+   submit.disabled=n<required;
+   if(n>0&&n%5===0)audio.play('type');
+   $('notebookDone').hidden=n!==required;
+   if(n===required)audio.play('collect');
+  });
+  $('notebookCancel').onclick=()=>UIManager.closeModal();
+  $('notebookSubmit').onclick=()=>{if(input.value.length>=required){audio.play('notebook');UIManager.closeModal();onComplete(input.value)}};
+  setTimeout(()=>input.focus(),120);
+ }
+}
+class KeypadUI{
+ static open({code='110',title='KABI NUMBER 7',onSuccess=()=>{},onCancel=()=>{}}={}){
+  audio.play('select');
+  let entry='';
+  const body=`<div style="background:#102334;border:1px solid #79cbed40;border-radius:8px;padding:22px;text-align:center">
+   <div style="font-size:10px;letter-spacing:2.5px;color:#79cbed">${esc(title)}</div>
+   <div id="keypadDisplay" style="font-family:var(--display);font-size:52px;letter-spacing:12px;color:#ffcd70;margin:16px 0">_ _ _</div>
+   <div id="keypadGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px;max-width:260px;margin:0 auto"></div>
+   <div id="keypadMsg" style="min-height:20px;margin-top:14px;font-size:12px;font-weight:600"></div>
+  </div>`;
+  UIManager.openModal('ENTER PASSWORD',body,`<button class="secondary" id="keypadCancel">Step back</button>`,'keypad');
+  const display=$('keypadDisplay'),msg=$('keypadMsg');
+  const update=()=>{display.textContent=entry.padEnd(3,'_').split('').join(' ')};
+  const press=d=>{if(entry.length<3){entry+=d;audio.play('type');update()}};
+  const submit=()=>{
+   if(entry===code){
+    audio.play('unlock');msg.textContent='UNLOCKED';msg.style.color='#9bd8b4';
+    setTimeout(()=>{UIManager.closeModal();onSuccess()},520);
+   }else{audio.play('error');msg.textContent='WRONG PASSWORD';msg.style.color='#ff8980';entry='';update()}
+  };
+  $('keypadGrid').innerHTML=['1','2','3','4','5','6','7','8','9','C','0','OK'].map(d=>`<button class="secondary" data-key="${d}" style="min-height:52px;font-size:18px">${d}</button>`).join('');
+  $('keypadGrid').querySelectorAll('button').forEach(button=>button.onclick=()=>{
+   const key=button.dataset.key;
+   if(key==='C')entry='';else if(key==='OK')submit();else press(key);
+   update();
+  });
+  $('keypadCancel').onclick=()=>{UIManager.closeModal();onCancel()};
+  const abort=new AbortController();
+  document.addEventListener('keydown',event=>{
+   if(!UIManager.modalOpen||UIManager.modalType!=='keypad')return;
+   let handled=true;
+   if(/^[0-9]$/.test(event.key))press(event.key);
+   else if(event.key==='Backspace')entry=entry.slice(0,-1);
+   else if(event.key==='Enter')submit();
+   else if(event.key==='Escape'){UIManager.closeModal();onCancel()}
+   else handled=false;
+   if(handled){event.preventDefault();event.stopPropagation();update()}
+  },{signal:abort.signal});
+  document.addEventListener('c9a:modalclosed',()=>abort.abort(),{once:true});
+  update();
+ }
+}
+class TutorialUI{
+ static shown=false;
+ static show(){
+  UIManager.openModal('HOW TO PLAY',`<div class="credits-copy">
+   <h3 class="!mt-0">DESKTOP</h3>
+   <p><span class="key">W A S D</span> Move · Mouse to look<br><span class="key">SHIFT</span> Sprint · <span class="key">E</span> Interact<br><span class="key">SPACE / ENTER</span> Continue dialogue · <span class="key">ESC</span> Pause<br><span class="key">H</span> This help screen</p>
+   <h3>MOBILE</h3>
+   <p>Left joystick to move. Drag the right side to look. Tap INTERACT when the prompt appears. Landscape gives you more room.</p>
+   <div class="notice">Look for the golden ring. It marks whatever you can interact with. Doors, windows, boards and cabinets all respond.</div>
+  </div>`,`<button class="primary !text-xs !py-3 !min-h-0" id="tutorialClose">Got it ${icon('check')}</button>`,'tutorial');
+  $('tutorialClose').onclick=()=>{UIManager.closeModal();this.shown=true};
+ }
+ static maybeShow(){
+  if(this.shown||GameEngine.state!=='ENVIRONMENT_PREVIEW')return;
+  try{if(localStorage.getItem(CONFIG.tutorialKey))return;localStorage.setItem(CONFIG.tutorialKey,'1')}catch(error){}
+  this.show();
  }
 }
 
@@ -1793,7 +2024,7 @@ class FriendSelection{
  }
 }
 
-/* 17 — STRUCTURED DIALOGUE ENGINE */
+/* 17 — DIALOGUE ENGINE (structured lines, typewriter, hooks, skip, mobile-safe) */
 class DialogueSystem{
  static active=false;
  static queue=[];
@@ -1801,56 +2032,106 @@ class DialogueSystem{
  static timer=null;
  static onComplete=null;
  static visibleChars=0;
- static play(lines,onComplete=()=>{}){
+ static skippable=true;
+ static hooks={onLine:null};
+ static play(lines,onComplete=()=>{},options={}){
   if(this.active)this.finish();
   this.queue=lines.map(line=>({
    speakerId:line.speakerId||'unknown',displayName:line.displayName||'Unknown',text:line.text||'',
    expression:line.expression||'neutral',animation:line.animation||'talk',camera:line.camera||null,sound:line.sound||null,duration:line.duration||0
   }));
-  this.index=0;this.onComplete=onComplete;this.active=true;
-  if(GameEngine.input)GameEngine.input.clear();
-  this.showLine();
+  this.index=0;this.onComplete=onComplete;this.active=true;this.skippable=options.skippable!==false;
+  if(GameEngine.input){GameEngine.input.clear();GameEngine.input.enabled=false}
+  if(GameEngine.player)GameEngine.player.enabled=false;
+  MobileControls.setVisible(false);
+  this.ensurePanel();this.showLine();
  }
  static ensurePanel(){
   if($('dialoguePanel'))return;
   const panel=document.createElement('section');panel.id='dialoguePanel';panel.setAttribute('role','dialog');panel.setAttribute('aria-label','Story dialogue');
-  panel.style.cssText='position:fixed;z-index:35;bottom:max(28px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:min(760px,calc(100% - 32px));padding:22px 26px;background:#102334ef;border:1px solid #79cbed50;border-radius:9px;backdrop-filter:blur(12px);cursor:pointer';
-  panel.innerHTML='<div id="dialogueSpeaker" style="color:#ffcd70;font-size:12px;font-weight:600;margin-bottom:10px"></div><p id="dialogueText" style="font-size:clamp(14px,2vw,18px);line-height:1.7;min-height:3.4em"></p><div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;color:#abc0ce;font-size:10px"><span>SPACE / ENTER · TAP TO CONTINUE</span><button class="quiet-btn" id="dialogueNext">Continue '+icon('arrow-right')+'</button></div>';
-  document.body.appendChild(panel);panel.onclick=()=>this.continue();
+  panel.style.cssText='position:fixed;z-index:35;bottom:max(24px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:min(780px,calc(100% - 28px));padding:20px 22px;background:#102334f2;border:1px solid #79cbed55;border-radius:10px;backdrop-filter:blur(14px);cursor:pointer;box-shadow:0 18px 60px #0007';
+  panel.innerHTML=`
+   <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+    <span id="dialogueAvatar" style="width:38px;height:38px;border-radius:7px;background:#ffcd70;color:#102334;display:grid;place-items:center;font-family:var(--display);font-size:20px;font-weight:700"></span>
+    <div style="flex:1;min-width:0"><div id="dialogueSpeaker" style="color:#ffcd70;font-size:13px;font-weight:600"></div><div id="dialogueRole" style="font-size:9px;letter-spacing:2px;color:#79cbed;margin-top:3px">CLASS 9A</div></div>
+    <button class="quiet-btn" id="dialogueSkip" style="min-height:34px;padding:7px 11px;font-size:10px">SKIP</button>
+   </div>
+   <p id="dialogueText" style="font-size:clamp(15px,2vw,18px);line-height:1.7;min-height:3.4em;color:#f0f3ed"></p>
+   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;color:#abc0ce;font-size:10px">
+    <span>SPACE / ENTER · TAP TO CONTINUE</span>
+    <button class="quiet-btn" id="dialogueNext" style="min-height:38px">Continue ${icon('arrow-right')}</button>
+   </div>`;
+  document.body.appendChild(panel);
+  panel.onclick=e=>{if(e.target.closest('button'))return;this.continue()};
+  $('dialogueNext').onclick=e=>{e.stopPropagation();this.continue()};
+  $('dialogueSkip').onclick=e=>{e.stopPropagation();if(this.skippable)this.finish()};
  }
  static showLine(){
   this.ensurePanel();const line=this.queue[this.index];if(!line){this.finish();return}
-  $('dialoguePanel').hidden=false;$('dialogueSpeaker').textContent=line.displayName;$('dialogueText').textContent='';this.visibleChars=0;
-  clearInterval(this.timer);if(line.sound)audio.play(line.sound);
+  $('dialoguePanel').hidden=false;
+  $('dialogueSpeaker').textContent=line.displayName;
+  $('dialogueRole').textContent=line.speakerId==='unknown'?'UNKNOWN':'CLASS 9A';
+  $('dialogueAvatar').textContent=line.displayName.replace(/[^A-Za-z]/g,'').slice(0,2).toUpperCase()||'??';
+  $('dialogueText').textContent='';this.visibleChars=0;
+  $('dialogueSkip').style.display=this.skippable?'':'none';
+  if(line.sound)audio.play(line.sound);
+  if(this.hooks.onLine)this.hooks.onLine(line,this.index);
+  clearInterval(this.timer);
+  const speed=line.duration>0?Math.max(8,line.duration/Math.max(1,line.text.length)):22;
   this.timer=setInterval(()=>{
-   this.visibleChars++;$('dialogueText').textContent=line.text.slice(0,this.visibleChars);
-   if(this.visibleChars>=line.text.length)clearInterval(this.timer);
-  },22);
+   this.visibleChars++;
+   $('dialogueText').textContent=line.text.slice(0,this.visibleChars);
+   if(this.visibleChars%4===0)audio.play('dialogueTick');
+   if(this.visibleChars>=line.text.length){clearInterval(this.timer);this.timer=null}
+  },speed);
  }
  static continue(){
   if(!this.active)return;
   const line=this.queue[this.index];
-  if(this.visibleChars<line.text.length){clearInterval(this.timer);this.visibleChars=line.text.length;$('dialogueText').textContent=line.text}
+  if(this.visibleChars<line.text.length){clearInterval(this.timer);this.timer=null;this.visibleChars=line.text.length;$('dialogueText').textContent=line.text}
   else{audio.play();this.index++;this.showLine()}
  }
  static finish(){
-  clearInterval(this.timer);this.active=false;this.queue=[];
+  clearInterval(this.timer);this.timer=null;this.active=false;this.queue=[];
   if($('dialoguePanel'))$('dialoguePanel').hidden=true;
+  if(GameEngine.state==='ENVIRONMENT_PREVIEW'&&!CutsceneManager.active){
+   if(GameEngine.input)GameEngine.input.enabled=true;
+   if(GameEngine.player)GameEngine.player.enabled=true;
+   MobileControls.setVisible(true);
+  }
   const callback=this.onComplete;this.onComplete=null;if(callback)callback();
  }
  static dispose(){clearInterval(this.timer);this.active=false;this.queue=[];this.onComplete=null;if($('dialoguePanel'))$('dialoguePanel').remove()}
 }
-
 /* 18 — MISSION, INVENTORY, INTERACTION */
 class MissionSystem{
  static current='';
  static history=[];
- static set(text,notify=true){
-  this.current=text;this.history.push({text,time:Date.now()});
-  if(save.data){save.data.mission=text;save.write(CONFIG.saveKey,save.data)}
-  if(notify)UIManager.toast(text,'bookmark');
+ static card=null;
+ static timer=null;
+ static ensureCard(){
+  if(this.card)return;
+  this.card=document.createElement('div');this.card.id='missionCard';
+  const phone=matchMedia('(max-width:700px)').matches;
+  this.card.style.cssText=`position:fixed;z-index:40;background:#102334f2;border:1px solid #ffcd7060;border-left:4px solid #ffcd70;border-radius:7px;box-shadow:0 12px 40px #0006;transform:translateX(120%);transition:transform .4s cubic-bezier(.2,.9,.2,1);pointer-events:none;box-sizing:border-box;${phone?'left:18px;right:18px;bottom:calc(218px + env(safe-area-inset-bottom));top:auto;padding:13px 15px':'right:22px;top:150px;max-width:300px;padding:15px 17px'}`;
+  const titleSize=matchMedia('(max-width:700px)').matches?'20px':'24px';
+  this.card.innerHTML=`<div style="font-size:9px;letter-spacing:2.5px;color:#79cbed;margin-bottom:7px">NEW OBJECTIVE</div><div id="missionCardText" style="font-family:var(--display);font-size:${titleSize};line-height:1.05;overflow-wrap:anywhere"></div><div id="missionCardSub" style="font-size:10px;color:#abc0ce;margin-top:7px;line-height:1.5"></div>`;
+  document.body.appendChild(this.card);
  }
- static clear(){this.current='';this.history=[]}
+ static set(text,notify=true,sub=''){
+  this.current=text;this.history.push({text,sub,time:Date.now()});
+  if(save.data){save.data.mission=text;save.write(CONFIG.saveKey,save.data)}
+  HUD.setObjective(text,sub);
+  if(notify){
+   this.ensureCard();
+   $('missionCardText').textContent=text;$('missionCardSub').textContent=sub;
+   this.card.style.transform='translateX(0)';
+   clearTimeout(this.timer);
+   this.timer=setTimeout(()=>{this.card.style.transform='translateX(120%)'},4200);
+   audio.play('confirm');
+  }
+ }
+ static clear(){this.current='';this.history=[];clearTimeout(this.timer);if(this.card)this.card.style.transform='translateX(120%)'}
 }
 class InventorySystem{
  static items=[];
@@ -1861,40 +2142,112 @@ class InventorySystem{
 class InteractionSystem{
  static objects=[];
  static nearest=null;
+ static marker=null;
+ static markerMat=null;
  static register(object){this.objects.push(object)}
+ static ensureMarker(){
+  if(this.marker)return;
+  const geo=new THREE.TorusGeometry(.28,.025,8,24);geo.rotateX(Math.PI/2);
+  resources.extraGeometries.add(geo);
+  this.markerMat=resources.custom('interaction-marker',new THREE.MeshBasicMaterial({color:'#ffcd70',transparent:true,opacity:.85,depthWrite:false}));
+  this.marker=new THREE.Mesh(geo,this.markerMat);this.marker.visible=false;this.marker.renderOrder=5;
+  GameEngine.sceneManager.scene.add(this.marker);
+ }
+ static segmentBlocked(a,b){
+  for(const c of CollisionSystem.boxes){
+   if(['bench','chair','pillar'].includes(c.tag))continue;
+   if(b.x>=c.minX&&b.x<=c.maxX&&b.z>=c.minZ&&b.z<=c.maxZ)continue;
+   let tmin=0,tmax=1;const dx=b.x-a.x,dz=b.z-a.z;
+   if(Math.abs(dx)<1e-6){if(a.x<c.minX||a.x>c.maxX)continue}
+   else{let t1=(c.minX-a.x)/dx,t2=(c.maxX-a.x)/dx;if(t1>t2){const tmp=t1;t1=t2;t2=tmp}tmin=Math.max(tmin,t1);tmax=Math.min(tmax,t2);if(tmin>tmax)continue}
+   if(Math.abs(dz)<1e-6){if(a.z<c.minZ||a.z>c.maxZ)continue}
+   else{let t1=(c.minZ-a.z)/dz,t2=(c.maxZ-a.z)/dz;if(t1>t2){const tmp=t1;t1=t2;t2=tmp}tmin=Math.max(tmin,t1);tmax=Math.min(tmax,t2);if(tmin>tmax)continue}
+   if(tmax>=0&&tmin<=1)return true;
+  }
+  return false;
+ }
  static update(position,direction){
-  this.nearest=null;let best=2.2;
+  this.ensureMarker();
+  this.nearest=null;let best=CONFIG.interactionRange;
+  const dir=direction.clone();dir.y=0;dir.normalize();
   for(const object of this.objects){
    if(object.enabled===false)continue;
    const delta=object.position.clone().sub(position);delta.y=0;const distance=delta.length();
-   if(distance<best&&(distance<.3||delta.normalize().dot(direction)>.45)){best=distance;this.nearest=object}
+   if(distance>best)continue;
+   const facing=distance<.35?1:delta.clone().normalize().dot(dir);
+   if(facing<.55)continue;
+   if(distance>.6&&this.segmentBlocked(position,object.position))continue;
+   best=distance;this.nearest=object;
   }
+  if(this.nearest){
+   this.marker.visible=true;
+   this.marker.position.copy(this.nearest.position);this.marker.position.y=.06;
+   const pulse=1+Math.sin(GameEngine.totalTime*5)*.08;
+   this.marker.scale.setScalar(pulse);
+   this.markerMat.opacity=.65+Math.sin(GameEngine.totalTime*5)*.2;
+  }else this.marker.visible=false;
   HUD.updatePrompt();
  }
- static interact(){if(GameEngine.paused||CutsceneManager.active||!this.nearest)return;if(this.nearest.action)this.nearest.action()}
- static clear(){this.objects=[];this.nearest=null}
+ static interact(){
+  if(GameEngine.paused||CutsceneManager.active||DialogueSystem.active||!this.nearest)return;
+  audio.play('select');if(this.nearest.action)this.nearest.action();
+ }
+ static clear(){this.objects=[];this.nearest=null;if(this.marker)this.marker.visible=false}
 }
-
-/* 19 — EXCLUSIVE, CANCELLABLE CUTSCENES */
+/* 19 — CUTSCENE MANAGER (exclusive, cancellable, third-person tracks) */
 class CutsceneManager{
  static active=false;
  static token=0;
  static jobs=[];
- static begin(){
-  this.cancel();this.active=true;GameEngine.input.enabled=false;GameEngine.player.enabled=false;
-  GameEngine.cameraManager.unlock();GameEngine.input.clear();return ++this.token;
+ static name='';
+ static begin(name='cutscene'){
+  this.cancel();this.active=true;this.name=name;
+  GameEngine.input.enabled=false;GameEngine.player.enabled=false;
+  GameEngine.cameraManager.unlock();GameEngine.input.clear();
+  MobileControls.setVisible(false);
+  GameEngine.cameraManager.mode='cutscene';
+  return ++this.token;
  }
  static wait(milliseconds,token){
   return new Promise(resolve=>{
    const job={resolve,timer:null};
-   job.timer=setTimeout(()=>{this.jobs=this.jobs.filter(existing=>existing!==job);resolve(token===this.token)},milliseconds);
+   job.timer=setTimeout(()=>{this.jobs=this.jobs.filter(j=>j!==job);resolve(token===this.token)},milliseconds);
    this.jobs.push(job);
   });
  }
- static end(token){if(token===this.token){this.active=false;this.jobs=[]}}
- static cancel(){this.token++;this.jobs.forEach(job=>{clearTimeout(job.timer);job.resolve(false)});this.jobs=[];this.active=false}
+ static cameraTo(pos,lookAt,duration=1000,token=this.token,fov=57){
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(pos[0],pos[1],pos[2]),new THREE.Vector3(lookAt[0],lookAt[1],lookAt[2]),fov);
+  return this.wait(duration,token);
+ }
+ static track(getTarget,offset,lookOffset,duration,token){
+  const job={type:'track',getTarget,offset:new THREE.Vector3(offset[0],offset[1],offset[2]),lookOffset:new THREE.Vector3(lookOffset[0],lookOffset[1],lookOffset[2]),until:performance.now()+duration,token};
+  this.jobs.push(job);
+  return this.wait(duration,token);
+ }
+ static update(){
+  const now=performance.now();
+  for(const job of [...this.jobs]){
+   if(job.type==='track'&&job.token===this.token){
+    if(now>=job.until){this.jobs=this.jobs.filter(j=>j!==job);continue}
+    const target=job.getTarget();if(!target)continue;
+    GameEngine.cameraManager.setCutscene(target.clone().add(job.offset),target.clone().add(job.lookOffset));
+   }
+  }
+ }
+ static end(token){
+  if(token!==this.token)return;
+  this.active=false;this.jobs=[];this.name='';
+  if(GameEngine.state==='ENVIRONMENT_PREVIEW'){
+   GameEngine.cameraManager.setFirstPerson(GameEngine.player.position);
+   GameEngine.input.enabled=true;GameEngine.player.enabled=true;MobileControls.setVisible(true);
+  }
+ }
+ static cancel(){
+  this.token++;
+  this.jobs.forEach(job=>{clearTimeout(job.timer);if(job.resolve)job.resolve(false)});
+  this.jobs=[];this.active=false;this.name='';
+ }
 }
-
 /* 20 — STORY ROUTING */
 class StoryDirector{
  static generation=0;
@@ -1917,8 +2270,10 @@ class StoryDirector{
   GameEngine.setState('ENVIRONMENT_PREVIEW');
   GameEngine.sceneManager.populatePreview(CharacterSelection.friends);
   PreviewInteractions.register();
-  HUD.setObjective('EXPLORE THE SECOND FLOOR','Visit Class 9A, the courtyard and the west wing. The story begins in Phase 4.');
+  audio.setAmbience('classroom');
+  MissionSystem.set('EXPLORE THE SECOND FLOOR',true,'Visit Class 9A, the courtyard and the west wing. The story begins in Phase 4.');
   UIManager.toast('Environment preview — walk the school. Find Class 9A.','cube');
+  setTimeout(()=>TutorialUI.maybeShow(),650);
  }
  static cancel(){this.generation++;CutsceneManager.cancel();DialogueSystem.finish();MissionSystem.clear();InventorySystem.clear()}
 }
@@ -1939,6 +2294,7 @@ class GameEngine{
  static input=null;
  static player=null;
  static cameraManager=null;
+ static lastLocation='';
  static setState(next){
   if(!CONFIG.storyStates.includes(next))throw new Error(`Unknown story state: ${next}`);
   const menuStates=['MENU','CHARACTER_SELECTION','FRIEND_SELECTION'];
@@ -1953,10 +2309,11 @@ class GameEngine{
    this.player.position.set(CONFIG.spawn.x,0,CONFIG.spawn.z);this.player.velocity.set(0,0,0);
    this.cameraManager.setFirstPerson(this.player.position);
    this.cameraManager.yaw=this.cameraManager.targetYaw=CONFIG.spawn.yaw;
+   this.lastLocation='';
    HUD.show();
   }
  }
- static mainMenu(){StoryDirector.cancel();this.setState('MENU');UIManager.updateContinue();UIManager.showScreen('menuScreen')}
+ static mainMenu(){StoryDirector.cancel();this.setState('MENU');audio.setAmbience('menu');UIManager.updateContinue();UIManager.showScreen('menuScreen')}
  static pause(){
   if(!['MENU','CHARACTER_SELECTION','FRIEND_SELECTION'].includes(this.state)&&!this.paused){
    this.paused=true;this.input.clear();this.cameraManager.unlock();MobileControls.setVisible(false);
@@ -2009,9 +2366,12 @@ class GameEngine{
     this.player.update(delta,this.camera);
     this.cameraManager.update(delta,this.totalTime);
     this.sceneManager.update(this.totalTime,delta);
+    CutsceneManager.update();
     if(this.state==='ENVIRONMENT_PREVIEW'){
      MobileControls.setVisible(!DialogueSystem.active&&!CutsceneManager.active&&!this.paused&&!UIManager.modalOpen);
-     HUD.setLocation(locationName(this.player.position.x,this.player.position.z));
+     const loc=locationName(this.player.position.x,this.player.position.z);
+     HUD.setLocation(loc);
+     if(loc!==this.lastLocation){this.lastLocation=loc;audio.setAmbience(loc==='CLASS 9A'?'classroom':'corridor')}
      if(this.player.enabled&&!this.paused){
       const direction=new THREE.Vector3();this.camera.getWorldDirection(direction);
       InteractionSystem.update(this.player.position,direction);
@@ -2032,7 +2392,8 @@ class GameEngine{
  }
  static dispose(){
   this.running=false;cancelAnimationFrame(this.raf);StoryDirector.cancel();DialogueSystem.dispose();
-  NPCManager.clear();DoorSystem.clear();CollisionSystem.clear();
+  NPCManager.clear();DoorSystem.clear();CollisionSystem.clear();MissionSystem.clear();
+  if(InteractionSystem.marker)InteractionSystem.marker.visible=false;
   if(this.cameraManager)this.cameraManager.dispose();
   if(this.input)this.input.dispose();
   if(this.player)this.player.dispose();
