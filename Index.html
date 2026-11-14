@@ -276,15 +276,16 @@ class CharacterFactory{
   block(head,.43,.43,.4,0,0,0,skin);
   block(head,.45,.13,.42,0,.19,-.005,hair);
   block(head,.45,.23,.12,0,.035,-.17,hair);
-  block(head,.075,.22,.35,-.195,.065,-.025,hair);
-  block(head,.075,.18,.35,.195,.085,-.025,hair);
   if(data.gender==='girl'){
    const style=data.hairStyle;
-   block(head,.12,style%2?.48:.3,.29,-.205,-.1,-.075,hair);
-   block(head,.12,style%2?.48:.3,.29,.205,-.1,-.075,hair);
+   const length=style%2?.48:.3;
+   block(head,.12,length,.16,-.195,.15-length/2,.06,hair);
+   block(head,.12,length,.16,.195,.15-length/2,.06,hair);
    if(style%3===0)block(head,.24,.24,.24,0,.08,-.3,hair);
    if(style%3===1)block(head,.075,.075,.055,.23,.07,.12,resources.mat(data.accent));
   }else{
+   block(head,.12,.3,.16,-.195,0,.06,hair);
+   block(head,.12,.3,.16,.195,0,.06,hair);
    for(let index=0;index<3;index++)block(head,.11,.09+(index%2)*.045,.13,-.13+index*.12,.255,.105,hair);
    if(data.hairStyle===3)block(head,.32,.07,.16,0,.14,.21,hair);
   }
