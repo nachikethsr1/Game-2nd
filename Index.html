@@ -40,7 +40,7 @@
 <div class="vignette"></div><div class="grain"></div>
 <header class="app-header">
  <div class="brand"><div class="brand-mark" data-icon="school"></div><div><div class="brand-name">CLASS 9A</div><div class="brand-sub">SCHOOL MYSTERY</div></div></div>
- <div class="header-actions"><span class="chip"><i class="live-dot"></i> GAMEPLAY SYSTEMS · PHASE 03</span><button class="quiet-btn" id="soundButton" aria-label="Mute all sound"><span data-icon="volume"></span><span class="sound-label" id="soundLabel">SOUND ON</span></button><button class="quiet-btn" id="headerSettings" aria-label="Open settings"><span data-icon="settings"></span></button></div>
+ <div class="header-actions"><span class="chip"><i class="live-dot"></i> THE FIRST DAY · PHASE 04</span><button class="quiet-btn" id="soundButton" aria-label="Mute all sound"><span data-icon="volume"></span><span class="sound-label" id="soundLabel">SOUND ON</span></button><button class="quiet-btn" id="headerSettings" aria-label="Open settings"><span data-icon="settings"></span></button></div>
 </header>
 <main>
  <section class="screen" id="menuScreen">
@@ -112,7 +112,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 const CONFIG = Object.freeze({
  title:'CLASS 9A — SCHOOL MYSTERY',
- version:'0.3.0 · Phase 3',
+ version:'0.4.0 · Phase 4',
  maxFriends:5,
  cabinetTarget:7,
  cabinetPassword:'110',
@@ -792,8 +792,12 @@ class NPCManager{
   rig.root.position.set(x,0,z);rig.root.rotation.y=opts.ry||0;
   this.group.add(rig.root);
   const blob=new THREE.Mesh(this.blobGeo,this.blobMat);blob.position.set(x,.012,z);this.group.add(blob);
-  const name=this.nameSprite(data);name.position.set(x,2.14,z);this.group.add(name);
-  const npc={id,data,rig,blob,name,state:opts.state||'idle',path:null,speed:opts.speed||1.3,phase:Math.random()*10};
+  const name=this.nameSprite(data);
+  const tagY=opts.state==='sit'?1.42:2.14;
+  if(opts.state==='sit'){name.scale.set(.62,.155,1);name.material.depthTest=false;name.renderOrder=12}
+  name.position.set(x,tagY,z);
+  this.group.add(name);
+  const npc={id,data,rig,blob,name,tagY,state:opts.state||'idle',path:null,speed:opts.speed||1.3,phase:Math.random()*10};
   this.npcs.push(npc);return npc;
  }
  static setState(id,state){const n=this.npcs.find(n=>n.id===id);if(n){n.state=state;n.path=null}}
@@ -823,7 +827,7 @@ class NPCManager{
    }
    CharacterFactory.animate(n.rig,t+n.phase,n.state);
    n.blob.position.set(n.rig.root.position.x,.012,n.rig.root.position.z);
-   n.name.position.set(n.rig.root.position.x,2.14,n.rig.root.position.z);
+   n.name.position.set(n.rig.root.position.x,n.tagY||2.14,n.rig.root.position.z);
   }
  }
  static clear(){
@@ -1345,40 +1349,249 @@ Chapter 7 — Our School.</p>`));
  }
 }
 
-/* 07 — SCENE MANAGER */
+/* ================================================================
+   PHASE 4 — STORY SUPPORT: bus, teachers, props, cinematic overlays
+   ================================================================ */
+const TEACHER_DATA={
+ pavalama:{id:'teacher-pavalama',name:"Pavalama Ma'am",gender:'girl',index:40,clothing:'#7a5c9e',trousers:'#2c3e50',hair:'#2b2530',skin:'#c99a76',hairStyle:2,accent:'#e8d6a4'},
+ payona:{id:'teacher-payona',name:"Payona Ma'am",gender:'girl',index:41,clothing:'#c06a8a',trousers:'#34495e',hair:'#33272e',skin:'#deb591',hairStyle:4,accent:'#a8d4dc'},
+ principal:{id:'teacher-principal',name:"Principal Ma'am",gender:'girl',index:42,clothing:'#3d5a80',trousers:'#1f2d3d',hair:'#20242c',skin:'#bd8c68',hairStyle:0,accent:'#ffcd70'}
+};
+class StoryUI{
+ static root=null;static fadeLayer=null;static cardEl=null;static bars=null;
+ static ensure(){
+  if(this.root)return;
+  this.root=document.createElement('div');this.root.id='storyOverlay';
+  this.root.style.cssText='position:fixed;inset:0;z-index:44;pointer-events:none';
+  this.root.innerHTML=`
+   <div id="storyFade" style="position:absolute;inset:0;background:#000;opacity:0;transition:opacity .5s"></div>
+   <div id="storyBars" style="position:absolute;inset:0;opacity:0;transition:opacity .4s"><div style="position:absolute;top:0;left:0;right:0;height:8vh;background:#000"></div><div style="position:absolute;bottom:0;left:0;right:0;height:8vh;background:#000"></div></div>
+   <div id="storyCard" style="position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);text-align:center;opacity:0;transition:opacity .4s;max-width:min(700px,88vw)">
+    <div id="storyCardTitle" style="font-family:var(--display);font-size:clamp(38px,7vw,86px);line-height:.95;color:#f0f3ed;text-shadow:0 6px 30px #000"></div>
+    <div id="storyCardSub" style="font-size:clamp(12px,1.6vw,16px);color:#abc0ce;margin-top:16px;line-height:1.7"></div>
+   </div>`;
+  document.body.appendChild(this.root);
+  this.fadeLayer=$('storyFade');this.cardEl=$('storyCard');this.bars=$('storyBars');
+ }
+ static wait(ms,token){return new Promise(resolve=>setTimeout(()=>resolve(token===StoryDirector.generation),ms))}
+ static async fade(to,duration=500,token=null){
+  this.ensure();const t=token===null?StoryDirector.generation:token;
+  this.fadeLayer.style.transition=`opacity ${duration}ms`;this.fadeLayer.style.opacity=to;
+  await this.wait(duration,t);
+ }
+ static async blackout(title,lines,duration,token){
+  this.ensure();this.fadeLayer.style.opacity=1;this.cardEl.style.opacity=1;
+  $('storyCardTitle').textContent=title;$('storyCardSub').innerHTML=lines.map(line=>esc(line)).join('<br>');
+  const steps=Math.floor(duration/520);
+  for(let i=0;i<steps;i++){if(token!==StoryDirector.generation)return;audio.play('footstep');await this.wait(520,token)}
+  this.cardEl.style.opacity=0;
+ }
+ static card(title,sub='',duration=1800,token=null){
+  this.ensure();const t=token===null?StoryDirector.generation:token;
+  $('storyCardTitle').textContent=title;$('storyCardSub').textContent=sub;this.cardEl.style.opacity=1;
+  return this.wait(duration,t).then(()=>{this.cardEl.style.opacity=0});
+ }
+ static blur(amount){if(GameEngine.renderManager)GameEngine.renderManager.canvas.style.filter=amount>0?`blur(${amount}px)`:'none'}
+ static letterbox(on){this.ensure();this.bars.style.opacity=on?1:0}
+ static clear(){if(this.fadeLayer)this.fadeLayer.style.opacity=0;if(this.cardEl)this.cardEl.style.opacity=0;if(this.bars)this.bars.style.opacity=0;this.blur(0);audio.setMuffled(0)}
+}
+class BusBuilder{
+ static build(scene){
+  const g=new THREE.Group();g.name='SchoolBus';g.visible=false;scene.add(g);
+  const M=SchoolMaterials,busMat=resources.mat('#d9a441',.6),seatMat=resources.mat('#3a6ea5',.7),floorMat=resources.mat('#4a5560',.8);
+  block(g,3.4,.15,14,0,-.08,0,floorMat);
+  block(g,.12,1.1,14,-1.7,.55,0,busMat);block(g,.12,1.1,14,1.7,.55,0,busMat);
+  block(g,3.4,.12,14,0,2.6,0,busMat);
+  for(let z=-6;z<=6;z+=2){
+   block(g,.1,1.2,.12,-1.68,1.7,z,busMat);block(g,.1,1.2,.12,1.68,1.7,z,busMat);
+   block(g,.04,1.1,1.8,-1.66,1.7,z,M.glass,false);block(g,.04,1.1,1.8,1.66,1.7,z,M.glass,false);
+  }
+  const seats=[];
+  for(let z=-5;z<=5;z+=2.2)for(const x of [-1.05,1.05]){
+   block(g,.8,.12,.7,x,.45,z,seatMat);block(g,.8,.7,.12,x,.85,z-.3,seatMat);seats.push({x,z});
+  }
+  block(g,1.2,.8,.6,0,.4,-6.5,resources.mat('#2c3e50'));
+  block(g,.3,.04,12,0,2.55,0,M.bright);
+  const trees=[];
+  for(let i=0;i<14;i++){
+   const t=new THREE.Group(),side=i%2?-1:1;
+   block(t,.3,1.6,.3,0,.8,0,resources.mat('#6b4a2f'));
+   block(t,1.4,1.4,1.4,0,2,0,resources.mat('#3f9d5f'));
+   t.position.set(side*4.5,0,-18+i*3);g.add(t);trees.push(t);
+  }
+  return {group:g,trees,seats};
+ }
+ static update(bus,dt){if(bus&&bus.group.visible)bus.trees.forEach(t=>{t.position.z+=dt*9;if(t.position.z>12)t.position.z=-24})}
+}
+class StoryActors{
+ static teachers={};static avatar=null;static avatarBlob=null;static movers=[];static sitTweens=[];static props=[];static seatCache=null;
+ static seats(){
+  if(this.seatCache)return this.seatCache;
+  const cols=[2.3,4.25,6.5,8.75,10.7],rows=[11.95,13.5,15.05,16.6],seats=[];
+  for(const rz of rows)for(const bx of cols)seats.push({x:bx-.35,z:rz+.18},{x:bx+.35,z:rz+.18});
+  return this.seatCache=seats;
+ }
+ static ensureAvatar(){
+  if(this.avatar)return this.avatar;
+  const data=CharacterDatabase.get(CharacterSelection.protagonist)||CharacterDatabase.get('boy-0');
+  this.avatar=CharacterFactory.create(data);this.avatar.root.visible=false;
+  GameEngine.sceneManager.school.root.add(this.avatar.root);
+  this.avatarBlob=new THREE.Mesh(NPCManager.blobGeo,NPCManager.blobMat);this.avatarBlob.visible=false;
+  GameEngine.sceneManager.school.root.add(this.avatarBlob);
+  return this.avatar;
+ }
+ static showAvatar(x,z,ry=0,state='idle'){
+  const a=this.ensureAvatar();a.root.visible=true;a.root.position.set(x,0,z);a.root.rotation.y=ry;a.state=state;
+  this.avatarBlob.visible=true;this.avatarBlob.position.set(x,.012,z);
+ }
+ static hideAvatar(){if(this.avatar){this.avatar.root.visible=false;this.avatarBlob.visible=false}}
+ static spawnTeacher(key,x,z,opts={}){
+  if(this.teachers[key])return this.teachers[key];
+  const data=TEACHER_DATA[key],rig=CharacterFactory.create(data);
+  rig.root.position.set(x,0,z);rig.root.rotation.y=opts.ry||0;
+  GameEngine.sceneManager.school.root.add(rig.root);
+  const blob=new THREE.Mesh(NPCManager.blobGeo,NPCManager.blobMat);blob.position.set(x,.012,z);
+  GameEngine.sceneManager.school.root.add(blob);
+  const actor={key,data,rig,blob,state:opts.state||'idle',horror:false,speed:opts.speed||1.5};
+  this.teachers[key]=actor;return actor;
+ }
+ static setTeacherState(key,state){const a=this.teachers[key];if(a)a.state=state}
+ static setHorror(key,on){
+  const a=this.teachers[key];if(!a)return;
+  if(on&&!a.horrorMat)a.horrorMat=resources.custom('horror-'+key,new THREE.MeshStandardMaterial({color:'#ff3b30',emissive:'#ff1a1a',emissiveIntensity:2.6,roughness:.3}));
+  a.horror=on;
+  a.rig.eyes.forEach(e=>e.material=on?a.horrorMat:CHARACTER_MAT);
+  a.rig.brows.forEach((b,i)=>{b.material=on?a.horrorMat:CHARACTER_MAT;b.rotation.z=on?(i?-.5:.5):0;b.position.y=on?.115:.092});
+  a.rig.mouth.material=on?a.horrorMat:CHARACTER_MAT;
+  a.rig.mouth.scale.set(on?2.4:1,on?2.2:1,1);a.rig.mouth.position.y=on?-.13:-.12;
+ }
+ static moveRig(rig,points,speed=1.6,onDone=null){
+  this.movers.push({rig,points:points.map(p=>new THREE.Vector3(p[0],0,p[1])),index:0,speed,onDone});
+ }
+ static moveTeacher(key,points,speed=1.6,onDone=null){
+  const a=this.teachers[key];if(!a)return;a.state='walk';
+  this.moveRig(a.rig,points,speed,()=>{a.state='idle';if(onDone)onDone()});
+ }
+ static moveAvatar(points,speed=1.6,onDone=null){
+  const a=this.ensureAvatar();a.state='walk';
+  this.moveRig(a,points,speed,()=>{a.state='idle';if(onDone)onDone()});
+ }
+ static sitNPC(id,x,z){
+  const n=NPCManager.npcs.find(n=>n.id===id);if(!n)return;
+  n.state='sit';n.path=null;
+  this.sitTweens.push({npc:n,from:n.rig.root.position.clone(),to:new THREE.Vector3(x,0,z),t:0,dur:.35});
+ }
+ static async arriveAll(token,duration=5000){
+  const protagonist=CharacterSelection.protagonist;
+  const existing=new Set(NPCManager.npcs.map(n=>n.id));
+  const students=CharacterDatabase.all.filter(c=>c.id!==protagonist&&!existing.has(c.id));
+  const seats=this.seats();
+  const occupied=new Set(NPCManager.npcs.map(n=>`${n.rig.root.position.x.toFixed(2)},${n.rig.root.position.z.toFixed(2)}`));
+  const freeSeats=seats.filter(s=>!occupied.has(`${s.x.toFixed(2)},${s.z.toFixed(2)}`));
+  const per=duration/Math.max(1,students.length);
+  for(let i=0;i<students.length;i++){
+   if(token!==CutsceneManager.token)return;
+   const c=students[i],seat=freeSeats[i%freeSeats.length]||seats[i%seats.length];
+   NPCManager.spawn(c.id,10.85+(i%3-1)*.28,9.2,{state:'walk',ry:Math.PI});
+   NPCManager.walkTo(c.id,[[10.85,10.9],[seat.x,10.9],[seat.x,seat.z-.75]],{speed:2.6});
+   setTimeout(()=>{if(token===CutsceneManager.token)this.sitNPC(c.id,seat.x,seat.z)},Math.min(duration-150,1100+i*per));
+   await CutsceneManager.wait(per,token);
+  }
+ }
+ static gatherFriends(friends,x,z){
+  friends.forEach((id,i)=>{
+   const n=NPCManager.npcs.find(n=>n.id===id);if(!n)return;
+   const angle=i/Math.max(1,friends.length)*Math.PI*2;
+   NPCManager.walkTo(id,[[x+Math.cos(angle)*1.1,z+Math.sin(angle)*1.1]],{speed:1.8});
+   setTimeout(()=>NPCManager.setState(id,'talk'),900);
+  });
+ }
+ static update(dt,t){
+  for(const key in this.teachers){
+   const a=this.teachers[key];
+   CharacterFactory.animate(a.rig,t+TEACHER_DATA[key].index,a.horror?'horror':a.state);
+   a.blob.position.set(a.rig.root.position.x,.012,a.rig.root.position.z);
+  }
+  if(this.avatar&&this.avatar.root.visible){
+   CharacterFactory.animate(this.avatar,t,this.avatar.state);
+   this.avatarBlob.position.set(this.avatar.root.position.x,.012,this.avatar.root.position.z);
+  }
+  for(const m of [...this.movers]){
+   if(!m.rig||!m.rig.root||!m.points.length||m.index>=m.points.length){this.movers=this.movers.filter(x=>x!==m);if(m.onDone)m.onDone();continue}
+   const target=m.points[m.index],dx=target.x-m.rig.root.position.x,dz=target.z-m.rig.root.position.z,dist=Math.hypot(dx,dz);
+   if(dist<.12){m.index++;if(m.index>=m.points.length){this.movers=this.movers.filter(x=>x!==m);if(m.onDone)m.onDone();continue}}
+   else{const sp=Math.min(m.speed*dt,dist);m.rig.root.position.x+=dx/dist*sp;m.rig.root.position.z+=dz/dist*sp;m.rig.root.rotation.y=Math.atan2(dx,dz)}
+  }
+  for(const s of [...this.sitTweens]){
+   s.t+=dt;const k=clamp(s.t/s.dur,0,1),e=k*k*(3-2*k);
+   s.npc.rig.root.position.x=THREE.MathUtils.lerp(s.from.x,s.to.x,e);
+   s.npc.rig.root.position.z=THREE.MathUtils.lerp(s.from.z,s.to.z,e);
+   if(k>=1)this.sitTweens=this.sitTweens.filter(x=>x!==s);
+  }
+ }
+ static clear(){
+  if(!GameEngine.sceneManager)return;
+  const root=GameEngine.sceneManager.school.root;
+  for(const key in this.teachers){const a=this.teachers[key];a.rig.dispose();root.remove(a.rig.root,a.blob)}
+  this.teachers={};
+  if(this.avatar){this.avatar.dispose();root.remove(this.avatar.root,this.avatarBlob);this.avatar=null;this.avatarBlob=null}
+  this.movers=[];this.sitTweens=[];this.props.forEach(p=>root.remove(p));this.props=[];
+ }
+}
+class FoodBuilder{
+ static create(){
+  const g=new THREE.Group();g.name='FoodReward';
+  const boxMat=resources.mat('#b98d5e',.9);
+  [[6.5,7.6],[8,7.6],[9.5,7.6],[11,7.6],[7.2,8.6],[8.8,8.6],[10.4,8.6]].forEach(([x,z],i)=>{
+   const box=new THREE.Group();box.position.set(x,0,z);
+   block(box,.9,.5,.7,0,.25,0,boxMat);
+   if(i===0)this.pizza(box);else if(i===1)this.burger(box);else if(i===2)this.pasta(box);else if(i===3)this.biryani(box);else if(i===4)this.chicken(box);else if(i===5)this.drinks(box);else this.snacks(box);
+   g.add(box);
+  });
+  GameEngine.sceneManager.school.root.add(g);StoryActors.props.push(g);return g;
+ }
+ static cyl(p,r,h,color,y){const geo=new THREE.CylinderGeometry(r,r,h,14);resources.extraGeometries.add(geo);const m=new THREE.Mesh(geo,resources.mat(color));m.position.y=y;p.add(m);return m}
+ static pizza(p){this.cyl(p,.32,.06,'#e8c06a',.56);for(let i=0;i<6;i++)block(p,.06,.03,.06,Math.cos(i)*.18,.6,Math.sin(i)*.18,resources.mat('#c0392b'))}
+ static burger(p){['#d9a441','#6b4a2f','#27ae60','#d9a441'].forEach((c,i)=>this.cyl(p,.22,.07,c,.55+i*.08))}
+ static pasta(p){block(p,.6,.08,.5,0,.55,0,resources.mat('#e8d5a8'));for(let i=0;i<8;i++)block(p,.08,.04,.08,(Math.random()-.5)*.4,.6,(Math.random()-.5)*.3,resources.mat('#e67e22'))}
+ static biryani(p){block(p,.6,.08,.5,0,.55,0,resources.mat('#d9a441'));for(let i=0;i<10;i++)block(p,.05,.03,.05,(Math.random()-.5)*.45,.6,(Math.random()-.5)*.35,resources.mat(i%2?'#c0392b':'#27ae60'))}
+ static chicken(p){for(let i=0;i<5;i++){const m=this.cyl(p,.09,.14,'#a0522d',.6);m.position.x=(Math.random()-.5)*.4;m.position.z=(Math.random()-.5)*.3;m.rotation.z=Math.random()}}
+ static drinks(p){for(let i=0;i<3;i++){const m=this.cyl(p,.09,.35,i===0?'#2980b9':'#c0392b',.7);m.position.x=-.2+i*.2;block(p,.1,.12,.02,m.position.x,.7,.09,resources.mat('#f0f3ed'))}}
+ static snacks(p){for(let i=0;i<6;i++)block(p,.12,.18,.06,(Math.random()-.5)*.5,.6,(Math.random()-.5)*.4,resources.mat(['#f1c40f','#e67e22','#9b59b6'][i%3]))}
+}
+
+/* 07 — SCENE MANAGER (school + bus + story actors) */
 class SceneManager{
  static sun=null;
  constructor(){
   this.scene=new THREE.Scene();this.scene.background=new THREE.Color('#8fb6c4');this.scene.fog=new THREE.Fog('#8fb6c4',30,85);
-  this.scene.add(new THREE.HemisphereLight('#d8ecf4','#6d7a6a',1.8));
-  SceneManager.sun=new THREE.DirectionalLight('#ffe2ae',2.9);
+  this.scene.add(new THREE.HemisphereLight('#d8ecf4','#6d7a6a',2.0));
+  SceneManager.sun=new THREE.DirectionalLight('#ffe2ae',3.2);
   SceneManager.sun.position.set(-14,22,18);SceneManager.sun.target.position.set(2,0,2);SceneManager.sun.castShadow=true;
   Object.assign(SceneManager.sun.shadow.camera,{left:-34,right:34,top:34,bottom:-34,near:1,far:80});
   SceneManager.sun.shadow.bias=-.0004;SceneManager.sun.shadow.normalBias=.04;SceneManager.sun.shadow.radius=3;
   this.scene.add(SceneManager.sun,SceneManager.sun.target);
-  const fill=new THREE.DirectionalLight('#9fd0e8',.6);fill.position.set(18,10,-14);this.scene.add(fill);
+  const fill=new THREE.DirectionalLight('#9fd0e8',.9);fill.position.set(18,10,-14);this.scene.add(fill);
   const pmrem=new THREE.PMREMGenerator(GameEngine.renderManager.renderer);
   this.envRT=pmrem.fromScene(new RoomEnvironment(),.04);
-  this.scene.environment=this.envRT.texture;
-  /* RoomEnvironment is a bright studio — keep it as a subtle reflection source only. */
-  this.scene.environmentIntensity=.3;
-  pmrem.dispose();
+  this.scene.environment=this.envRT.texture;pmrem.dispose();
   this.school=SchoolMapBuilder.buildSecondFloor(this.scene);
   this.refs=this.school.refs;
   NPCManager.init(this.school.root);
+  this.bus=BusBuilder.build(this.scene);
   this.populatePreview([]);
  }
+ showSchool(){this.school.root.visible=true;this.bus.group.visible=false;this.scene.background.set('#8fb6c4');this.scene.fog.color.set('#8fb6c4')}
+ showBus(){this.school.root.visible=false;this.bus.group.visible=true;this.scene.background.set('#0b1a28');this.scene.fog.color.set('#0b1a28')}
+ showBlank(){this.school.root.visible=false;this.bus.group.visible=false;this.scene.background.set('#0b1a28');this.scene.fog.color.set('#0b1a28')}
  populatePreview(friends){
+  this.showSchool();
   NPCManager.clear();
   const exclude=CharacterSelection.protagonist;
   const cols=[2.3,4.25,6.5,8.75,10.7];
   const group=(friends&&friends.length?friends:['boy-0','boy-1','boy-2']).filter(id=>id!==exclude);
-  group.slice(0,5).forEach((id,i)=>{
-   NPCManager.spawn(id,cols[i%5],11.95+.18,{state:'sit',ry:Math.PI});
-  });
-  ['girl-0','girl-1','girl-2'].filter(id=>id!==exclude&&!group.includes(id)).forEach((id,i)=>{
-   NPCManager.spawn(id,[8.75,10.7,6.5][i],16.6+.18,{state:'sit',ry:Math.PI});
-  });
+  group.slice(0,5).forEach((id,i)=>NPCManager.spawn(id,cols[i%5],11.95+.18,{state:'sit',ry:Math.PI}));
+  ['girl-0','girl-1','girl-2'].filter(id=>id!==exclude&&!group.includes(id)).forEach((id,i)=>NPCManager.spawn(id,[8.75,10.7,6.5][i],16.6+.18,{state:'sit',ry:Math.PI}));
   if(exclude!=='boy-5')NPCManager.spawn('boy-5',10.1,10.9,{state:'talk',ry:-2.2});
   if(exclude!=='boy-6')NPCManager.spawn('boy-6',9.4,11.3,{state:'talk',ry:.9});
   if(exclude!=='boy-7')NPCManager.spawn('boy-7',1.9,13.4,{state:'idle',ry:-Math.PI/2});
@@ -1389,6 +1602,8 @@ class SceneManager{
  update(time,dt){
   NPCManager.update(dt,time);
   DoorSystem.update(dt);
+  StoryActors.update(dt,time);
+  BusBuilder.update(this.bus,dt);
   this.refs.fans.forEach(f=>f.rotation.y+=dt*2.4);
   if(this.refs.cctvLed)this.refs.cctvLed.material.emissiveIntensity=1.5+Math.sin(time*4)*1.2;
   this.refs.dust.forEach(d=>{d.rotation.y=Math.sin(time*.05)*.03;d.position.y=Math.sin(time*.12)*.05});
@@ -1400,7 +1615,6 @@ class SceneManager{
   if(this.envRT)this.envRT.dispose();
  }
 }
-
 /* 08 — ORIGINAL PROCEDURAL AUDIO (ambience buses, footsteps, horror, UI) */
 class AudioManager{
  constructor(){
@@ -1752,6 +1966,7 @@ class UIManager{
   if(this.modalType==='pause'){GameEngine.resume();return}
   if(this.modalType==='foundation'||this.modalType==='girl-complete'){this.closeModal();GameEngine.mainMenu();return}
   if(this.modalType==='confirm'||this.modalType==='new-game'){this.closeModal();return}
+  if(this.modalType==='notebook'){UIManager.toast('Finish the classwork to continue.','book');return}
   this.closeModal();
  }
  static slider(key,label,help,min,max,step){
@@ -1802,11 +2017,11 @@ class UIManager{
   };
  }
  static credits(){
-  this.openModal('THE PEOPLE & THE PIXELS.',`<div class="eyebrow mb-4">An original school mystery</div><p class="credits-copy"><strong class="text-white">${esc(CONFIG.title)}</strong><br>A blocky world, familiar faces, and a day that doesn't quite add up.</p><div class="credit-rule"></div><h3>BUILT FROM SCRATCH.</h3><p class="credits-copy">Original procedural characters, architecture, materials and synthesized audio. Powered by Three.js r170. Barlow Condensed and DM Sans are open-source fonts. Interface icons use Lucide-style SVG paths.</p><h3>CLASS 9A.</h3><p class="credits-copy">23 boys. 11 girls. 34 individual characters.<br>All visual designs are fictional and respectful.</p><div class="notice">Phase 3 adds the gameplay layer: smoother first-person movement, sprint, PC + Android controls, line-of-sight interactions, the dialogue engine, cutscene cameras, procedural audio, and the paper / notebook / keypad interfaces. The supplied boy storyline arrives in Phase 4.</div>`,`<p>${esc(CONFIG.version)}</p><button class="secondary" id="creditsDone">Back to the corridor</button>`,'credits');
+  this.openModal('THE PEOPLE & THE PIXELS.',`<div class="eyebrow mb-4">An original school mystery</div><p class="credits-copy"><strong class="text-white">${esc(CONFIG.title)}</strong><br>A blocky world, familiar faces, and a day that doesn't quite add up.</p><div class="credit-rule"></div><h3>BUILT FROM SCRATCH.</h3><p class="credits-copy">Original procedural characters, architecture, materials and synthesized audio. Powered by Three.js r170. Barlow Condensed and DM Sans are open-source fonts. Interface icons use Lucide-style SVG paths.</p><h3>CLASS 9A.</h3><p class="credits-copy">23 boys. 11 girls. 34 individual characters.<br>All visual designs are fictional and respectful.</p><div class="notice">Phase 4 implements the complete supplied boy storyline: the school bus, developer shortcut, quiet classroom, arrival time-lapse, washroom trip, Social Studies, the announcements, the horror transformation, Task 001, the writing mini-game, food reward, staff room and both secret notes. It ends with free exploration and the Kabi 7 objective.</div>`,`<p>${esc(CONFIG.version)}</p><button class="secondary" id="creditsDone">Back to the corridor</button>`,'credits');
   $('creditsDone').onclick=()=>this.closeModal();
  }
  static controls(){
-  this.openModal('KNOW YOUR WAY AROUND.',`<div class="eyebrow mb-4">PC + Android</div><div class="credits-copy"><h3 class="!mt-0">DESKTOP</h3><p><span class="key">W A S D</span> Move · Mouse to look<br><span class="key">E</span> Interact · <span class="key">ESC</span> Pause<br><span class="key">SPACE / ENTER</span> Continue dialogue<br>Click the world to capture your mouse.</p><h3>MOBILE</h3><p>Left joystick to move. Drag the right side to look. Tap the interaction button when a prompt appears. Landscape gives you more room.</p><h3>RIGHT NOW</h3><p>Choose a character and up to five friends, then walk the second floor. Sprint with Shift, interact with E, press H for help. On mobile use the left joystick and right-side drag. The supplied story begins in Phase 4.</p></div>`,`<p>First-person exploration. Cinematic story moments.</p><button class="secondary" id="controlsDone">Got it ${icon('check')}</button>`,'controls');
+  this.openModal('KNOW YOUR WAY AROUND.',`<div class="eyebrow mb-4">PC + Android</div><div class="credits-copy"><h3 class="!mt-0">DESKTOP</h3><p><span class="key">W A S D</span> Move · Mouse to look<br><span class="key">E</span> Interact · <span class="key">ESC</span> Pause<br><span class="key">SPACE / ENTER</span> Continue dialogue<br>Click the world to capture your mouse.</p><h3>MOBILE</h3><p>Left joystick to move. Drag the right side to look. Tap the interaction button when a prompt appears. Landscape gives you more room.</p><h3>RIGHT NOW</h3><p>Choose a character and up to five friends. The boy storyline now plays from the school bus through both secret notes, then unlocks free exploration. Sprint with Shift, interact with E, press H for help. On mobile use the left joystick and right-side drag.</p></div>`,`<p>First-person exploration. Cinematic story moments.</p><button class="secondary" id="controlsDone">Got it ${icon('check')}</button>`,'controls');
   $('controlsDone').onclick=()=>this.closeModal();
  }
  static compatibility(title,message){
@@ -1858,7 +2073,7 @@ class NotebookUI{
    $('notebookDone').hidden=n!==required;
    if(n===required)audio.play('collect');
   });
-  $('notebookCancel').onclick=()=>UIManager.closeModal();
+  $('notebookCancel').onclick=()=>UIManager.toast('Finish the classwork to continue.','book');
   $('notebookSubmit').onclick=()=>{if(input.value.length>=required){audio.play('notebook');UIManager.closeModal();onComplete(input.value)}};
   setTimeout(()=>input.focus(),120);
  }
@@ -2094,7 +2309,7 @@ class DialogueSystem{
  static finish(){
   clearInterval(this.timer);this.timer=null;this.active=false;this.queue=[];
   if($('dialoguePanel'))$('dialoguePanel').hidden=true;
-  if(GameEngine.state==='ENVIRONMENT_PREVIEW'&&!CutsceneManager.active){
+  if(['ENVIRONMENT_PREVIEW','KABI_MISSION','DEVICE_DISCOVERED'].includes(GameEngine.state)&&!CutsceneManager.active){
    if(GameEngine.input)GameEngine.input.enabled=true;
    if(GameEngine.player)GameEngine.player.enabled=true;
    MobileControls.setVisible(true);
@@ -2237,7 +2452,7 @@ class CutsceneManager{
  static end(token){
   if(token!==this.token)return;
   this.active=false;this.jobs=[];this.name='';
-  if(GameEngine.state==='ENVIRONMENT_PREVIEW'){
+  if(['ENVIRONMENT_PREVIEW','KABI_MISSION','DEVICE_DISCOVERED'].includes(GameEngine.state)){
    GameEngine.cameraManager.setFirstPerson(GameEngine.player.position);
    GameEngine.input.enabled=true;GameEngine.player.enabled=true;MobileControls.setVisible(true);
   }
@@ -2248,36 +2463,466 @@ class CutsceneManager{
   this.jobs=[];this.active=false;this.name='';
  }
 }
-/* 20 — STORY ROUTING */
+/* 20 — STORY DIRECTOR: the complete supplied boy storyline */
 class StoryDirector{
  static generation=0;
+ static running=false;
+ static get protagonist(){return CharacterDatabase.get(CharacterSelection.protagonist)||CharacterDatabase.get('boy-0')}
+ static get friends(){
+  const list=CharacterSelection.friends.map(id=>CharacterDatabase.get(id)).filter(Boolean);
+  return list.length?list:CharacterDatabase.all.filter(c=>c.id!==CharacterSelection.protagonist).slice(0,3);
+ }
+ static wait(ms,token){return new Promise(resolve=>setTimeout(()=>resolve(token===this.generation),ms))}
+ static say(lines,token){
+  return new Promise(resolve=>{
+   DialogueSystem.play(lines,()=>resolve(token===StoryDirector.generation),{skippable:false});
+  });
+ }
+ static showPaper(title,lines,token){
+  return new Promise(resolve=>{PaperUI.show({title,lines,onClose:()=>resolve(token===StoryDirector.generation)})});
+ }
+ static setSmartboard(title,lines){
+  const mat=GameEngine.sceneManager.refs.smartboard;if(!mat)return;
+  const tex=canvasTexture(512,300,ctx=>{
+   ctx.fillStyle='#0e1c2a';ctx.fillRect(0,0,512,300);
+   ctx.strokeStyle='#79cbed';ctx.lineWidth=4;ctx.strokeRect(10,10,492,280);
+   ctx.fillStyle='#ffcd70';ctx.font='bold 34px sans-serif';ctx.fillText(title,26,52);
+   ctx.fillStyle='#f0f3ed';ctx.font='21px sans-serif';
+   lines.forEach((line,i)=>ctx.fillText(line,26,100+i*34));
+  });
+  mat.map=tex;mat.emissiveMap=tex;mat.needsUpdate=true;
+ }
  static route(gender){
   this.cancel();
   if(gender==='girl'){
    GameEngine.setState('FRIEND_SELECTION');
-   UIManager.openModal('SETUP SAVED. HER STORY IS NEXT.',`<div class="eyebrow mb-4">Girl storyline · In development</div><p class="credits-copy"><strong class="text-white">${esc(CharacterDatabase.get(CharacterSelection.protagonist).name)}</strong> and ${CharacterSelection.friends.length} friend${CharacterSelection.friends.length===1?'':'s'} are saved and ready.</p><div class="notice">The girl storyline is being developed. No story events have been invented. Return to the main menu and use Continue to recover this setup.</div>`,`<button class="secondary" id="girlSetupBack">Edit setup</button><button class="primary !text-xs !py-3 !min-h-0" id="girlSetupMenu">Main menu ${icon('arrow-right')}</button>`,'girl-complete');
+   const name=CharacterDatabase.get(CharacterSelection.protagonist).name;
+   UIManager.openModal('SETUP SAVED. HER STORY IS NEXT.',`<div class="eyebrow mb-4">Girl storyline · In development</div><p class="credits-copy"><strong class="text-white">${esc(name)}</strong> and ${CharacterSelection.friends.length} friend${CharacterSelection.friends.length===1?'':'s'} are saved and ready.</p><div class="notice">The girl storyline is being developed. No story events have been invented. Return to the main menu and use Continue to recover this setup.</div>`,`<button class="secondary" id="girlSetupBack">Edit setup</button><button class="primary !text-xs !py-3 !min-h-0" id="girlSetupMenu">Main menu ${icon('arrow-right')}</button>`,'girl-complete');
    $('girlSetupBack').onclick=()=>{UIManager.closeModal();FriendSelection.enter()};
    $('girlSetupMenu').onclick=()=>{UIManager.closeModal();GameEngine.mainMenu()};
    return;
   }
-  this.enterPreview();
+  this.startBoyStory();
+ }
+ static async startBoyStory(){
+  const token=++this.generation;this.running=true;
+  UIManager.hideScreens();
+  HUD.hide();
+  save.saveSelection(CharacterSelection.gender,CharacterSelection.protagonist,CharacterSelection.friends,'BUS_SCENE');
+  UIManager.updateContinue();
+  const scenes=[
+   'sceneBus','sceneArrival','sceneQuietClassroom','sceneArrivals','sceneWashroom',
+   'sceneSocialStudies','sceneShortBreak','sceneRunningFootsteps','scenePrincipal',
+   'sceneHorror','sceneFirstTask','sceneFriendInterrupts','sceneBookMinigame',
+   'sceneSubmitClasswork','sceneFoodReward','sceneStaffRoom','sceneSecretNotes','sceneKabiMission'
+  ];
+  for(const name of scenes){
+   await this[name](token);
+   if(token!==this.generation){this.running=false;return}
+  }
+  this.running=false;
  }
  static enterPreview(){
   this.cancel();
   save.saveSelection(CharacterSelection.gender,CharacterSelection.protagonist,CharacterSelection.friends,'ENVIRONMENT_PREVIEW');
   UIManager.updateContinue();
-  UIManager.hideScreens();
   GameEngine.setState('ENVIRONMENT_PREVIEW');
   GameEngine.sceneManager.populatePreview(CharacterSelection.friends);
   PreviewInteractions.register();
   audio.setAmbience('classroom');
-  MissionSystem.set('EXPLORE THE SECOND FLOOR',true,'Visit Class 9A, the courtyard and the west wing. The story begins in Phase 4.');
+  MissionSystem.set('EXPLORE THE SECOND FLOOR',true,'Visit Class 9A, the courtyard and the west wing.');
   UIManager.toast('Environment preview — walk the school. Find Class 9A.','cube');
   setTimeout(()=>TutorialUI.maybeShow(),650);
  }
- static cancel(){this.generation++;CutsceneManager.cancel();DialogueSystem.finish();MissionSystem.clear();InventorySystem.clear()}
+ static resumeMission(){
+  this.cancel();
+  UIManager.hideScreens();
+  GameEngine.sceneManager.showSchool();
+  GameEngine.sceneManager.populatePreview(CharacterSelection.friends);
+  PreviewInteractions.register();
+  GameEngine.player.position.set(6.5,0,10.4);
+  GameEngine.setState('KABI_MISSION');
+  MissionSystem.set('FIND KABI NUMBER 7',true,'ENTER PASSWORD 110');
+  audio.setAmbience('classroom');
+  UIManager.toast('Mission restored. Find Kabi number 7 in Class 9A.','lock');
+ }
+ /* SCENE 1 — SCHOOL BUS */
+ static async sceneBus(token){
+  GameEngine.setState('BUS_SCENE');
+  const cut=CutsceneManager.begin('bus');
+  GameEngine.sceneManager.showBlank();NPCManager.clear();
+  StoryUI.letterbox(true);audio.setAmbience('silent');
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(0,1.6,9),new THREE.Vector3(0,1.5,0));
+  await CutsceneManager.cameraTo([0,1.6,4.5],[0,1.5,-2],1600,cut);
+  if(token!==this.generation)return;
+  GameEngine.sceneManager.showBus();
+  GameEngine.sceneManager.bus.group.add(NPCManager.group);
+  const busLight=new THREE.PointLight('#ffe3b0',3.4,11,2);
+  busLight.position.set(0,2.3,.5);GameEngine.sceneManager.bus.group.add(busLight);
+  const busFill=new THREE.PointLight('#bcd7e6',1.5,10,2);
+  busFill.position.set(0,2.3,-4.5);GameEngine.sceneManager.bus.group.add(busFill);
+  audio.setAmbience('bus');
+  const few=['boy-0','boy-1','girl-0','boy-2'].filter(id=>id!==CharacterSelection.protagonist).slice(0,4);
+  few.forEach((id,i)=>{const seat=GameEngine.sceneManager.bus.seats[i+2];NPCManager.spawn(id,seat.x,seat.z,{state:'sit',ry:Math.PI})});
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(1.05,1.5,2),new THREE.Vector3(0,1.4,-4));
+  await CutsceneManager.wait(1400,cut);
+  if(token!==this.generation)return;
+  CutsceneManager.end(cut);
+  await this.say([{speakerId:this.protagonist.id,displayName:this.protagonist.name,text:'Wait... why are only our Class 9A students here?',expression:'worried'}],token);
+ }
+ /* SCENE 2 — DEVELOPER SHORTCUT (10 seconds, footsteps only) */
+ static async sceneArrival(token){
+  GameEngine.setState('SCHOOL_ARRIVAL');
+  await StoryUI.fade(1,500,token);
+  await StoryUI.blackout('DEVELOPER SHORTCUT',[
+   'The developer has only one day to make this game, so the school journey has been skipped.',
+   'Wait until your character reaches the classroom.'
+  ],10000,token);
+  if(token!==this.generation)return;
+  GameEngine.sceneManager.showSchool();
+  GameEngine.sceneManager.school.root.add(NPCManager.group);
+  NPCManager.clear();
+  GameEngine.player.position.set(6.5,0,10.4);
+  GameEngine.cameraManager.setFirstPerson(GameEngine.player.position);
+  StoryUI.letterbox(false);
+  await StoryUI.fade(0,700,token);
+ }
+ /* SCENE 3 — QUIET CLASSROOM */
+ static async sceneQuietClassroom(token){
+  GameEngine.setState('CLASSROOM_INTRO');
+  NPCManager.clear();
+  const seats=StoryActors.seats(),friends=this.friends;
+  friends.slice(0,5).forEach((f,i)=>{const s=seats[i];NPCManager.spawn(f.id,s.x,s.z,{state:'sit',ry:Math.PI})});
+  ['girl-0','girl-1','girl-2'].filter(id=>id!==CharacterSelection.protagonist&&!friends.some(f=>f.id===id)).forEach((id,i)=>{const s=seats[30+i];NPCManager.spawn(id,s.x,s.z,{state:'sit',ry:Math.PI})});
+  const cut=CutsceneManager.begin('quiet-classroom');
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(6.5,1.62,15.5),new THREE.Vector3(6.5,1.5,12));
+  await CutsceneManager.cameraTo([6.5,1.62,13.8],[6.5,1.5,11.8],1800,cut);
+  if(token!==this.generation)return;
+  CutsceneManager.end(cut);
+  const friend=friends[0];
+  await this.say([
+   {speakerId:this.protagonist.id,displayName:this.protagonist.name,text:'Come here!'},
+   {speakerId:this.protagonist.id,displayName:this.protagonist.name,text:'I think nobody came today except us and a few girls sitting there.'},
+   {speakerId:friend.id,displayName:friend.name,text:"Bro, the buses haven't arrived yet. We need to wait."}
+  ],token);
+  friends.forEach(f=>NPCManager.setState(f.id,'talk'));
+ }
+ /* SCENE 4 — FIVE-SECOND ARRIVAL TIME-LAPSE */
+ static async sceneArrivals(token){
+  GameEngine.setState('CLASSROOM_ARRIVALS');
+  const cut=CutsceneManager.begin('arrivals');
+  StoryUI.letterbox(true);
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(6.5,4.2,17.8),new THREE.Vector3(6.5,1.2,13));
+  StoryUI.card('CLASS 9A FILLS UP','Five seconds. Everyone arrives.',1600,token);
+  await StoryActors.arriveAll(cut,5000);
+  if(token!==this.generation)return;
+  NPCManager.npcs.slice(0,6).forEach((n,i)=>NPCManager.setState(n.id,['talk','idle','pushup','talk','idle','dance'][i]));
+  await CutsceneManager.wait(700,cut);
+  NPCManager.npcs.forEach(n=>NPCManager.setState(n.id,'sit'));
+  CutsceneManager.end(cut);
+ }
+ /* SCENE 5 — WASHROOM (10 seconds, third-person) */
+ static async sceneWashroom(token){
+  GameEngine.setState('WASHROOM_SEQUENCE');
+  const friends=this.friends,friend=friends[0];
+  await this.say([{speakerId:friend.id,displayName:friend.name,text:"Bro, let's go outside, just to the washroom."}],token);
+  if(token!==this.generation)return;
+  const cut=CutsceneManager.begin('washroom');
+  StoryUI.letterbox(true);
+  StoryActors.showAvatar(6.5,13.5,Math.PI);
+  const toToilet=[[10.85,10.8],[10.85,8],[-10.75,8],[-10.75,10.5]];
+  const back=[[-10.75,8],[10.85,8],[10.85,10.8],[6.5,13.5]];
+  StoryActors.moveAvatar(toToilet,3.1);
+  friends.forEach((f,i)=>{const n=NPCManager.npcs.find(n=>n.id===f.id);if(n)NPCManager.walkTo(f.id,toToilet.map(p=>[p[0]+(i%2?.35:-.35),p[1]+(i%2?.25:-.25)]),{speed:3.1})});
+  CutsceneManager.track(()=>StoryActors.avatar.root.position,[-3,3.1,4],[0,1.2,0],4600,cut);
+  await CutsceneManager.wait(4600,cut);
+  if(token!==this.generation)return;
+  await StoryUI.fade(1,250,token);
+  await CutsceneManager.wait(650,cut);
+  StoryActors.avatar.root.position.set(-10.75,0,10.2);
+  friends.forEach((f,i)=>{const n=NPCManager.npcs.find(n=>n.id===f.id);if(n)n.rig.root.position.set(-10.75+(i%2?.3:-.3),0,10.2)});
+  await StoryUI.fade(0,250,token);
+  StoryActors.moveAvatar(back,3.1);
+  friends.forEach((f,i)=>{const n=NPCManager.npcs.find(n=>n.id===f.id);if(n)NPCManager.walkTo(f.id,back.map(p=>[p[0]+(i%2?.35:-.35),p[1]+(i%2?.25:-.25)]),{speed:3.1})});
+  await CutsceneManager.wait(4600,cut);
+  if(token!==this.generation)return;
+  CutsceneManager.end(cut);StoryActors.hideAvatar();
+  friends.forEach(f=>NPCManager.setState(f.id,'sit'));
+ }
+ /* SCENE 6 — SOCIAL STUDIES (10-second teaching lapse) */
+ static async sceneSocialStudies(token){
+  GameEngine.setState('SOCIAL_STUDIES');
+  StoryActors.spawnTeacher('pavalama',5.6,10.4,{ry:Math.PI});
+  const cut=CutsceneManager.begin('social');
+  StoryUI.letterbox(true);
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(6.5,2.4,16.5),new THREE.Vector3(5.6,1.5,10.4));
+  await CutsceneManager.wait(600,cut);
+  if(token!==this.generation)return;
+  CutsceneManager.end(cut);
+  await this.say([{speakerId:'teacher-pavalama',displayName:"Pavalama Ma'am",text:'We are starting a new chapter today.'}],token);
+  if(token!==this.generation)return;
+  const lapse=CutsceneManager.begin('social-lapse');
+  StoryUI.card('SOCIAL STUDIES','Ten seconds of class.',1400,token);
+  NPCManager.npcs.forEach(n=>NPCManager.setState(n.id,'write'));
+  StoryActors.setTeacherState('pavalama','write');
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(6.5,3.2,17),new THREE.Vector3(6.5,1.2,13));
+  await CutsceneManager.wait(10000,lapse);
+  if(token!==this.generation)return;
+  NPCManager.npcs.forEach(n=>NPCManager.setState(n.id,'idle'));
+  StoryActors.setTeacherState('pavalama','idle');
+  CutsceneManager.end(lapse);
+ }
+ /* SCENE 7 — SHORT BREAK */
+ static async sceneShortBreak(token){
+  GameEngine.setState('SHORT_BREAK');
+  await StoryUI.card('SHORT BREAK — 10 MINUTES','',1800,token);
+  if(token!==this.generation)return;
+  StoryActors.gatherFriends(this.friends.map(f=>f.id),6.5,13.5);
+  await this.wait(900,token);
+  const friends=this.friends,f0=friends[0],f1=friends[1]||f0,f2=friends[2]||f1;
+  const lines=[
+   {speakerId:this.protagonist.id,displayName:this.protagonist.name,text:'Bro, why is only 9A present in the entire school? Everyone else is absent!'},
+   {speakerId:f0.id,displayName:f0.name,text:"I don't know, bro. Maybe it's something only for us. Maybe it is just a coincidence."},
+   {speakerId:f1.id,displayName:f1.name,text:"Man, you're talking weird, dude."}
+  ];
+  if(friends.length>2)lines.push({speakerId:f2.id,displayName:f2.name,text:'Yeah... let us just wait and see.'});
+  await this.say(lines,token);
+ }
+ /* SCENE 8 — RUNNING FOOTSTEPS + PAYONA MA'AM */
+ static async sceneRunningFootsteps(token){
+  GameEngine.setState('TEACHER_ANNOUNCEMENT');
+  const cut=CutsceneManager.begin('running-footsteps');
+  StoryUI.letterbox(true);
+  StoryActors.spawnTeacher('payona',10.85,6.5,{ry:Math.PI});
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(10.85,.35,8.2),new THREE.Vector3(10.85,.5,6.5),50);
+  StoryActors.moveTeacher('payona',[[10.85,9.4]],4.5);
+  for(let i=0;i<6;i++){audio.play('runStep');await CutsceneManager.wait(180,cut)}
+  if(token!==this.generation)return;
+  const door=DoorSystem.doors.find(d=>d.name==='Class 9A door');if(door)DoorSystem.toggle(door);
+  StoryActors.moveTeacher('payona',[[10.85,11]],2.5);
+  await CutsceneManager.wait(900,cut);
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(8,1.7,12.5),new THREE.Vector3(10.85,1.5,10.5));
+  await CutsceneManager.wait(600,cut);
+  if(token!==this.generation)return;
+  CutsceneManager.end(cut);
+  await this.say([{speakerId:'teacher-payona',displayName:"Payona Ma'am",text:'EVERYONE! GOOD NEWS! You have the whole day free! You can do whatever you want. No studies, nothing. Just enjoy today!'}],token);
+  if(token!==this.generation)return;
+  NPCManager.npcs.forEach((n,i)=>NPCManager.setState(n.id,i%3?'cheer':'dance'));
+  StoryActors.showAvatar(6.5,13.5,Math.PI,'dance');
+  await this.say([{speakerId:this.protagonist.id,displayName:this.protagonist.name,text:'YIPPEE! Yeah bro! Finally, man! God has opened his eyes!'}],token);
+  NPCManager.npcs.forEach(n=>NPCManager.setState(n.id,'idle'));
+  StoryActors.hideAvatar();
+ }
+ /* SCENE 9 — PRINCIPAL ARRIVAL */
+ static async scenePrincipal(token){
+  const cut=CutsceneManager.begin('principal');
+  StoryActors.spawnTeacher('principal',10.85,9.2,{ry:Math.PI});
+  StoryActors.moveTeacher('principal',[[10.85,11]],2);
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(7,1.7,13),new THREE.Vector3(10.85,1.5,10.8));
+  await CutsceneManager.wait(1000,cut);
+  if(token!==this.generation)return;
+  CutsceneManager.end(cut);
+  await this.say([
+   {speakerId:'teacher-principal',displayName:"Principal Ma'am",text:'You have the whole day free, but you need to complete a few tasks. We will tell you what they are.'},
+   {speakerId:'class',displayName:'Class 9A',text:'Okay! We are ready!'},
+   {speakerId:'teacher-principal',displayName:"Principal Ma'am",text:'The smartboard will announce the tasks. You need to complete them.'}
+  ],token);
+ }
+ /* SCENE 10 — HORROR TRANSFORMATION */
+ static async sceneHorror(token){
+  const cut=CutsceneManager.begin('horror');
+  StoryUI.letterbox(true);audio.setAmbience('creepy');audio.play('creepy');
+  StoryActors.setHorror('principal',true);
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(10.85,1.7,11.8),new THREE.Vector3(10.85,1.6,10.8),45);
+  GameEngine.cameraManager.shake(.06,.5);
+  await CutsceneManager.wait(1200,cut);
+  if(token!==this.generation)return;
+  StoryActors.moveTeacher('principal',[[10.85,9.2],[10.85,6]],5);
+  await CutsceneManager.wait(1200,cut);
+  const pa=StoryActors.teachers.principal;if(pa)pa.rig.root.visible=false;
+  StoryActors.setHorror('payona',true);
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(9,1.7,12),new THREE.Vector3(10.85,1.6,10.8),45);
+  GameEngine.cameraManager.shake(.05,.4);
+  await CutsceneManager.wait(1000,cut);
+  StoryActors.moveTeacher('payona',[[10.85,9.2],[10.85,6]],5);
+  await CutsceneManager.wait(1000,cut);
+  const py=StoryActors.teachers.payona;if(py)py.rig.root.visible=false;
+  if(token!==this.generation)return;
+  CutsceneManager.end(cut);
+  const friend=this.friends[0];
+  await this.say([{speakerId:friend.id,displayName:friend.name,text:"Bro... wasn't that weird?"}],token);
+  audio.setAmbience('classroom');
+ }
+ /* SCENE 11 — FIRST TASK + SUSPICION */
+ static async sceneFirstTask(token){
+  GameEngine.setState('TASK_001');
+  this.setSmartboard('TASK 001',[
+   'THIS IS MY LAST WORDS',
+   'Write this sentence 1,000 times.',
+   '',
+   'REWARD:',
+   'Your favourite snacks and drinks.'
+  ]);
+  NPCManager.npcs.forEach(n=>NPCManager.setState(n.id,'cheer'));
+  const cut=CutsceneManager.begin('first-task');
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(6.5,1.62,13),new THREE.Vector3(5,1.7,9.8),55);
+  await CutsceneManager.wait(800,cut);
+  if(token!==this.generation)return;
+  StoryUI.blur(2.2);audio.setMuffled(.65);
+  await this.say([
+   {speakerId:this.protagonist.id,displayName:this.protagonist.name,text:'Wait a minute...'},
+   {speakerId:this.protagonist.id,displayName:this.protagonist.name,text:'When I boarded the bus, only our classmates were there.'},
+   {speakerId:this.protagonist.id,displayName:this.protagonist.name,text:'Then we reached school. Nobody else was there either.'},
+   {speakerId:this.protagonist.id,displayName:this.protagonist.name,text:'And those creepy smiles...'},
+   {speakerId:this.protagonist.id,displayName:this.protagonist.name,text:"Now they are making us write something that doesn't even make educational sense?"},
+   {speakerId:this.protagonist.id,displayName:this.protagonist.name,text:'Something is seriously wrong here.'}
+  ],token);
+  StoryUI.blur(0);audio.setMuffled(0);
+  NPCManager.npcs.forEach(n=>NPCManager.setState(n.id,'idle'));
+  CutsceneManager.end(cut);
+ }
+ /* SCENE 12 — FRIEND INTERRUPTS */
+ static async sceneFriendInterrupts(token){
+  const friend=this.friends[0],n=NPCManager.npcs.find(n=>n.id===friend.id);
+  if(n){n.rig.root.position.set(6.9,0,13.2);NPCManager.setState(friend.id,'tap')}
+  await this.wait(700,token);
+  if(token!==this.generation)return;
+  await this.say([
+   {speakerId:friend.id,displayName:friend.name,text:'Hey bro! What are you thinking, man? Just start writing fast! We will get our snacks!'},
+   {speakerId:this.protagonist.id,displayName:this.protagonist.name,text:'Yeah, bro...'},
+   {speakerId:friend.id,displayName:friend.name,text:"Come on! Let's do it, man!"}
+  ],token);
+ }
+ /* SCENE 13 — 100-CHARACTER BOOK MINI-GAME */
+ static async sceneBookMinigame(token){
+  GameEngine.setState('BOOK_MINIGAME');
+  await StoryUI.fade(1,400,token);
+  await StoryUI.fade(0,400,token);
+  if(token!==this.generation)return;
+  await new Promise(resolve=>{NotebookUI.open({required:100,onComplete:()=>resolve()})});
+ }
+ /* SCENE 14 — SUBMIT CLASSWORK */
+ static async sceneSubmitClasswork(token){
+  const cut=CutsceneManager.begin('submit');
+  StoryUI.letterbox(true);
+  StoryActors.showAvatar(6.5,13.5,Math.PI);
+  StoryActors.moveAvatar([[2.3,11.9]],2.2);
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(4,2.2,14),new THREE.Vector3(2.3,1,11.9));
+  await CutsceneManager.wait(1800,cut);
+  if(token!==this.generation)return;
+  StoryActors.spawnTeacher('payona',10.85,9.4,{ry:Math.PI});
+  const submitTeacher=StoryActors.teachers.payona;
+  if(submitTeacher){submitTeacher.rig.root.visible=true;submitTeacher.blob.visible=true}
+  StoryActors.setHorror('payona',true);
+  StoryActors.moveTeacher('payona',[[2.3,11.2]],3);
+  await CutsceneManager.wait(1800,cut);
+  const book=block(GameEngine.sceneManager.school.root,.3,.05,.22,2.3,.8,11.9,resources.mat('#e8e4d8'));
+  StoryActors.props.push(book);
+  await CutsceneManager.wait(500,cut);
+  book.visible=false;
+  StoryActors.moveTeacher('payona',[[10.85,9.4],[10.85,6]],5);
+  await CutsceneManager.wait(1400,cut);
+  const py=StoryActors.teachers.payona;if(py)py.rig.root.visible=false;
+  if(token!==this.generation)return;
+  CutsceneManager.end(cut);StoryActors.hideAvatar();
+ }
+ /* SCENE 15 — FOOD REWARD */
+ static async sceneFoodReward(token){
+  GameEngine.setState('FOOD_REWARD');
+  FoodBuilder.create();
+  const friend=this.friends[0];
+  await this.say([{speakerId:friend.id,displayName:friend.name,text:'Bro! Just grab it!'}],token);
+  if(token!==this.generation)return;
+  const cut=CutsceneManager.begin('food');
+  StoryUI.letterbox(true);
+  StoryActors.showAvatar(6.5,13.5,Math.PI);
+  const path=[[10.85,10.8],[10.85,8],[8.5,7.8]];
+  StoryActors.moveAvatar(path,3.2);
+  this.friends.forEach((f,i)=>{const n=NPCManager.npcs.find(n=>n.id===f.id);if(n)NPCManager.walkTo(f.id,path.map(p=>[p[0]+(i%2?.4:-.4),p[1]]),{speed:3.2})});
+  CutsceneManager.track(()=>StoryActors.avatar.root.position,[-2,2.6,3],[0,1,0],4000,cut);
+  await CutsceneManager.wait(3500,cut);
+  if(token!==this.generation)return;
+  StoryActors.props.forEach(p=>{if(p.name==='FoodReward')p.visible=false});
+  InventorySystem.add({id:'snacks',name:'Favourite snacks and drinks'});
+  audio.play('collect');
+  NPCManager.npcs.forEach(n=>NPCManager.setState(n.id,'cheer'));
+  await CutsceneManager.wait(800,cut);
+  if(token!==this.generation)return;
+  CutsceneManager.end(cut);StoryActors.hideAvatar();
+  NPCManager.npcs.forEach(n=>NPCManager.setState(n.id,'idle'));
+ }
+ /* SCENE 16 — STAFF ROOM */
+ static async sceneStaffRoom(token){
+  GameEngine.setState('STAFF_ROOM');
+  const cut=CutsceneManager.begin('staff-room');
+  StoryUI.letterbox(true);
+  await StoryUI.fade(1,400,token);
+  StoryActors.showAvatar(-4.2,-2.05,Math.PI/2);
+  const payona=StoryActors.spawnTeacher('payona',-6,-2.05,{ry:-Math.PI/2});
+  payona.rig.root.visible=true;StoryActors.setHorror('payona',true);
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(-2.5,1.7,-2.05),new THREE.Vector3(-5,1.5,-2.05));
+  await StoryUI.fade(0,400,token);
+  await CutsceneManager.wait(800,cut);
+  if(token!==this.generation)return;
+  CutsceneManager.end(cut);
+  await this.say([{speakerId:this.protagonist.id,displayName:this.protagonist.name,text:"Ma'am! Why are you giving that weird funny smile?"}],token);
+  if(token!==this.generation)return;
+  const run=CutsceneManager.begin('payona-run');
+  StoryActors.moveTeacher('payona',[[-4.5,-2.05],[-4.5,-5]],4);
+  await CutsceneManager.wait(1200,run);
+  const py=StoryActors.teachers.payona;if(py)py.rig.root.visible=false;
+  CutsceneManager.end(run);
+ }
+ /* SCENE 17 + 18 — SECRET NOTES */
+ static async sceneSecretNotes(token){
+  GameEngine.setState('SECRET_NOTES');
+  await this.showPaper('KABI NUMBER: 7',[
+   'KABI NUMBER: 7',
+   'PASSWORD: 110',
+   '',
+   'Take the mysterious device and make at least 20 more friends, which should not include...',
+   '........'
+  ],token);
+  if(token!==this.generation)return;
+  const cut=CutsceneManager.begin('warning-note');
+  StoryUI.letterbox(true);
+  GameEngine.cameraManager.setCutscene(new THREE.Vector3(-4.2,1.6,-1.5),new THREE.Vector3(-4.2,.1,-2.5));
+  await CutsceneManager.cameraTo([-4.2,.5,-2.2],[-4.2,.05,-2.6],1400,cut);
+  if(token!==this.generation)return;
+  CutsceneManager.end(cut);
+  await this.showPaper('DO NOT TELL ANYONE',[
+   "Don't tell anyone.",
+   'You just do your work.',
+   'Or else we will reduce your annual exam marks to ZERO.'
+  ],token);
+  if(token!==this.generation)return;
+  await StoryUI.card('THE DECISION','You decide not to tell anyone. The risk to your annual exam marks is too great.',2600,token);
+ }
+ /* SCENE 19 — PLAYER CONTROL UNLOCK → KABI MISSION */
+ static async sceneKabiMission(token){
+  StoryUI.letterbox(false);StoryUI.blur(0);audio.setMuffled(0);
+  await StoryUI.card('YOU ARE NOW FREE TO EXPLORE','Find Kabi number 7. Enter password 110.',2200,token);
+  if(token!==this.generation)return;
+  StoryActors.hideAvatar();
+  GameEngine.player.position.set(6.5,0,10.4);
+  GameEngine.setState('KABI_MISSION');
+  MissionSystem.set('FIND KABI NUMBER 7',true,'ENTER PASSWORD 110');
+  save.saveSelection(CharacterSelection.gender,CharacterSelection.protagonist,CharacterSelection.friends,'KABI_MISSION');
+  save.data.mission='FIND KABI NUMBER 7';save.write(CONFIG.saveKey,save.data);
+  UIManager.updateContinue();
+  PreviewInteractions.register();
+  audio.setAmbience('classroom');
+ }
+ static cancel(){
+  this.generation++;this.running=false;
+  CutsceneManager.cancel();DialogueSystem.finish();StoryUI.clear();StoryActors.clear();
+  MissionSystem.clear();InventorySystem.clear();
+  if(GameEngine.sceneManager){
+   GameEngine.sceneManager.showSchool();
+   GameEngine.sceneManager.school.root.add(NPCManager.group);
+  }
+ }
 }
-
 /* 21 — GAME ENGINE: ONE RAF, EXPLICIT STATES, CLEAN LIFECYCLE */
 class GameEngine{
  static state='MENU';
@@ -2298,24 +2943,31 @@ class GameEngine{
  static setState(next){
   if(!CONFIG.storyStates.includes(next))throw new Error(`Unknown story state: ${next}`);
   const menuStates=['MENU','CHARACTER_SELECTION','FRIEND_SELECTION'];
+  const freeStates=['ENVIRONMENT_PREVIEW','KABI_MISSION','DEVICE_DISCOVERED'];
   if(menuStates.includes(next)&&!menuStates.includes(this.state))StoryDirector.cancel();
   this.state=next;this.paused=false;
   if(this.input){this.input.enabled=false;this.input.clear()}
   if(this.player)this.player.enabled=false;
   if(menuStates.includes(next)){
    this.cameraManager.mode='menu';this.cameraManager.unlock();HUD.hide();
-  }else if(next==='ENVIRONMENT_PREVIEW'){
+  }else if(freeStates.includes(next)){
    this.input.enabled=true;this.player.enabled=true;
-   this.player.position.set(CONFIG.spawn.x,0,CONFIG.spawn.z);this.player.velocity.set(0,0,0);
-   this.cameraManager.setFirstPerson(this.player.position);
-   this.cameraManager.yaw=this.cameraManager.targetYaw=CONFIG.spawn.yaw;
-   this.lastLocation='';
-   HUD.show();
+   if(next==='ENVIRONMENT_PREVIEW'){
+    this.player.position.set(CONFIG.spawn.x,0,CONFIG.spawn.z);this.player.velocity.set(0,0,0);
+    this.cameraManager.setFirstPerson(this.player.position);
+    this.cameraManager.yaw=this.cameraManager.targetYaw=CONFIG.spawn.yaw;
+   }else{
+    this.cameraManager.setFirstPerson(this.player.position);
+    this.cameraManager.yaw=this.cameraManager.targetYaw=Math.PI;
+   }
+   this.lastLocation='';HUD.show();
+  }else{
+   this.cameraManager.unlock();HUD.hide();MobileControls.setVisible(false);
   }
  }
  static mainMenu(){StoryDirector.cancel();this.setState('MENU');audio.setAmbience('menu');UIManager.updateContinue();UIManager.showScreen('menuScreen')}
  static pause(){
-  if(!['MENU','CHARACTER_SELECTION','FRIEND_SELECTION'].includes(this.state)&&!this.paused){
+  if(['ENVIRONMENT_PREVIEW','KABI_MISSION','DEVICE_DISCOVERED'].includes(this.state)&&!this.paused){
    this.paused=true;this.input.clear();this.cameraManager.unlock();MobileControls.setVisible(false);
    UIManager.openModal('TAKE A BREATHER.',`<div class="flex flex-col gap-3"><button class="primary" id="resumeGame">Resume ${icon('play')}</button><button class="secondary" id="pauseSettings">${icon('settings')}Settings</button><button class="secondary" id="restartStory">${icon('reset')}Restart current story</button><button class="secondary" id="pauseMenu">Main menu</button></div>`,'','pause');
    $('resumeGame').onclick=()=>this.resume();
@@ -2331,7 +2983,7 @@ class GameEngine{
  }
  static resume(){
   this.paused=false;UIManager.closeModal();this.input.clear();
-  if(this.state==='ENVIRONMENT_PREVIEW')MobileControls.setVisible(true);
+  if(['ENVIRONMENT_PREVIEW','KABI_MISSION','DEVICE_DISCOVERED'].includes(this.state))MobileControls.setVisible(true);
   if(this.input.enabled&&!this.renderManager.mobile)this.cameraManager.lock();
  }
  static init(){
@@ -2367,7 +3019,7 @@ class GameEngine{
     this.cameraManager.update(delta,this.totalTime);
     this.sceneManager.update(this.totalTime,delta);
     CutsceneManager.update();
-    if(this.state==='ENVIRONMENT_PREVIEW'){
+    if(['ENVIRONMENT_PREVIEW','KABI_MISSION','DEVICE_DISCOVERED'].includes(this.state)){
      MobileControls.setVisible(!DialogueSystem.active&&!CutsceneManager.active&&!this.paused&&!UIManager.modalOpen);
      const loc=locationName(this.player.position.x,this.player.position.z);
      HUD.setLocation(loc);
@@ -2417,7 +3069,11 @@ function wireUI(){
  $('continueButton').onclick=()=>{
   if(!save.data)return;
   audio.start();audio.play();CharacterSelection.restore(save.data);
-  if(save.data.checkpoint==='ENVIRONMENT_PREVIEW'&&save.data.gender==='boy'){StoryDirector.enterPreview();return}
+  if(save.data.gender==='boy'&&['ENVIRONMENT_PREVIEW','KABI_MISSION','DEVICE_DISCOVERED'].includes(save.data.checkpoint)){
+   if(save.data.checkpoint==='ENVIRONMENT_PREVIEW')StoryDirector.enterPreview();
+   else StoryDirector.resumeMission();
+   return;
+  }
   if(save.data.checkpoint==='FRIEND_SELECTION'||save.data.gender==='girl')FriendSelection.enter();
   else{
    GameEngine.setState('CHARACTER_SELECTION');CharacterSelection.renderRoster();CharacterSelection.updatePreview();UIManager.showScreen('characterScreen');
